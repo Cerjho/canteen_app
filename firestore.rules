@@ -1,0 +1,307 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Role check examples
+// ---------------------------------------------------------------------------
+// Two example implementations of isAdmin() used in security rules:
+//
+// 1) custom-claims-only (recommended when you can set custom claims from a
+//    trusted server). This is fast and can't be modified from client-side.
+//
+//    function isAdmin() {
+//      return request.auth != null && request.auth.token.admin == true;
+//    }
+//
+// 2) hybrid fallback: checks custom claim first, then falls back to reading
+//    the users/{uid} document in Firestore. Use this if you haven't set
+//    custom claims for existing accounts. Note: get() calls cost and are
+//    subject to rule evaluation limits.
+//
+//    function isAdmin() {
+//      return request.auth != null && (
+//        request.auth.token.admin == true ||
+//        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+//      );
+//    }
+//
+// Security notes:
+// - Prefer custom claims for production (set them from a trusted environment
+//   using the Admin SDK: admin.auth().setCustomUserClaims(uid, { admin: true })).
+// - If you use the hybrid approach, keep the get() usage minimal to avoid
+//   performance and rule evaluation costs.
+//
+// Optional: isParent() examples
+//
+// 1) custom-claims-only (fast)
+//    function isParent() {
+//      return request.auth != null && request.auth.token.parent == true;
+//    }
+//
+// 2) hybrid fallback (checks Firestore users doc)
+//    function isParent() {
+//      return request.auth != null && (
+//        request.auth.token.parent == true ||
+//        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent'
+//      );
+//    }
+//
+// To set custom claims you can use the provided Node.js utility at
+// `tools/set_custom_claims.js` (requires a service account key) or invoke
+// the Firebase Admin SDK from a trusted Cloud Function. Example command:
+//
+//   node tools/set_custom_claims.js ./serviceAccountKey.json <USER_UID> true
+//
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================================================
+    // HELPER FUNCTIONS
+    // ============================================================================
+    
+    /// Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    /// Get user role from users collection
+    /// This reads the user document to check their role
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    }
+    
+    /// Check if user is admin
+    /// First checks custom claims (faster), then falls back to Firestore
+    function isAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.get('admin', false) == true ||
+              getUserRole(request.auth.uid) == 'admin');
+    }
+    
+    /// Check if user is a parent
+    function isParentRole() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'parent';
+    }
+    
+    /// Check if user owns the parent account
+    function isOwnParentAccount(parentUserId) {
+      return isAuthenticated() && request.auth.uid == parentUserId;
+    }
+    
+    // ============================================================================
+    // USERS COLLECTION - Basic account info for all users
+    // ============================================================================
+    // Structure: users/{uid} -> { uid, name, email, role, createdAt, isActive }
+    //
+    // - Admin users: Only have document in users collection
+    // - Parent users: Have document in users + parents collection
+    
+    match /users/{userId} {
+      // Users can read their own user document to check their role
+      // Admins can read all user documents
+      allow read: if isAuthenticated() && 
+                     (request.auth.uid == userId || isAdmin());
+      
+      // Only admins can create, update, or delete user documents
+      // This prevents users from changing their own role
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // PARENTS COLLECTION - Parent-specific data
+    // ============================================================================
+    // Structure: parents/{uid} -> { userId, balance, address, phone, children[] }
+    //
+    // The document ID matches the user's Firebase Auth UID and users collection doc ID
+    
+    match /parents/{parentUserId} {
+      // Admins can read all parent documents
+      // Parents can read their own document
+      allow read: if isAuthenticated() && 
+                     (isAdmin() || isOwnParentAccount(parentUserId));
+      
+      // Only admins can create or delete parent documents
+      allow create, delete: if isAdmin();
+      
+      // Parents can update their own account
+      // Allow updating address, phone (profile info)
+      // Allow updating children array (for student linking/unlinking)
+      // Prevent parents from modifying balance or userId directly
+      allow update: if isAdmin() || 
+                       (isOwnParentAccount(parentUserId) && 
+                        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance', 'userId']));
+    }
+    
+    // ============================================================================
+    // STUDENTS COLLECTION - Student data linked to parents
+    // ============================================================================
+    // Structure: students/{id} -> { id, parentId, firstName, lastName, grade, balance, ... }
+    
+    match /students/{studentId} {
+      // Anyone authenticated can read students (for admin views and parent views)
+      allow read: if isAuthenticated();
+      
+      // Only admins can create or delete students
+      allow create, delete: if isAdmin();
+      
+      // Admins can update all fields
+      // Parents can update:
+      //   1. Link/unlink themselves (parentId field) to unlinked students or their own students
+      //   2. Update allergies and dietaryRestrictions of their linked students
+      allow update: if isAdmin() || 
+                       (isAuthenticated() && 
+                        isParentRole() &&
+                        (
+                          // Allow linking: student has no parent OR is already linked to this parent
+                          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['parentId', 'updatedAt']) &&
+                           (resource.data.parentId == null || resource.data.parentId == request.auth.uid) &&
+                           request.resource.data.parentId == request.auth.uid) ||
+                          // Allow unlinking: student is linked to this parent
+                          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['parentId', 'updatedAt']) &&
+                           resource.data.parentId == request.auth.uid &&
+                           request.resource.data.parentId == null) ||
+                          // Allow updating health info: student is linked to this parent
+                          (resource.data.parentId == request.auth.uid &&
+                           request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['allergies', 'dietaryRestrictions', 'updatedAt']))
+                        ));
+    }
+    
+    // ============================================================================
+    // MENU ITEMS COLLECTION
+    // ============================================================================
+    
+    match /menu_items/{itemId} {
+      // Anyone authenticated can read menu items
+      allow read: if isAuthenticated();
+      
+      // Only admins can create, update, or delete menu items
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // WEEKLY MENUS COLLECTION
+    // ============================================================================
+    
+    match /weekly_menus/{menuId} {
+      // Anyone authenticated can read weekly menus
+      allow read: if isAuthenticated();
+      
+      // Only admins can create, update, or delete weekly menus
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // ANALYTICS COLLECTION
+    // ============================================================================
+    
+    match /weekly_menu_analytics/{analyticsId} {
+      // Anyone authenticated can read analytics
+      allow read: if isAuthenticated();
+      
+      // Only admins can write analytics
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // ORDERS COLLECTION
+    // ============================================================================
+
+    // Orders follow a strict lifecycle to prevent clients from forging paid orders.
+    // - Parents may create orders but the order must start with status == 'pending_payment'.
+    // - Parents may update only non-status fields (e.g., add paymentInfo, proofImageUrl),
+    //   but they cannot change the order status.
+    // - Only admins can update the order status (for example set status -> 'paid').
+    match /orders/{orderId} {
+      // Anyone authenticated can read orders (admins and owners can view as needed)
+      allow read: if isAuthenticated();
+
+      // Parents can create orders for themselves but MUST set status to 'pending_payment'.
+      // This prevents clients from creating orders that are already marked as paid.
+      allow create: if isAuthenticated() &&
+                       isParentRole() &&
+                       request.resource.data.parentId == request.auth.uid &&
+                       request.resource.data.status == 'pending_payment';
+
+      // Updates:
+      // - Admins can update anything (including status changes to 'paid').
+      // - Parent owners can update their own orders but are NOT allowed to change the
+      //   `status`, `parentId`, `totalAmount`, or any server-controlled timestamps.
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        // owner only
+        request.auth.uid == resource.data.parentId &&
+        // prevent changing protected fields
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status', 'parentId', 'totalAmount', 'createdAt', 'paidAt', 'processedBy'
+        ])
+      );
+
+      // Only admins may delete orders
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================================
+    // TOP-UPS COLLECTION
+    // ============================================================================
+    
+    match /topups/{topupId} {
+      // Anyone authenticated can read their own top-ups
+      allow read: if isAuthenticated();
+      
+      // Parents can create top-up requests for themselves
+      allow create: if isAuthenticated() && 
+                       isParentRole() &&
+                       request.resource.data.parentId == request.auth.uid;
+      
+      // Only admins can update (approve/decline) or delete top-ups
+      allow update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // SETTINGS COLLECTION (admin only)
+    // ============================================================================
+    
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // ============================================================================
+    // DAY OF ORDERS COLLECTION
+    // ============================================================================
+    
+    match /day_of_orders/{orderId} {
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.parentId;
+      allow read: if request.auth != null && (
+                   request.auth.uid == resource.data.parentId ||
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+                );
+      allow update, delete: if request.auth != null &&
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ============================================================================
+    // PARENT TRANSACTIONS COLLECTION
+    // ============================================================================
+    // Structure: parent_transactions/{id} -> { parentId, amount, balanceBefore, balanceAfter, orderIds[], reason, createdAt }
+    // Parents can create transactions for themselves (e.g., client-side deferred transactions)
+    // Parents can read their own transactions. Admins can read/write all transactions.
+    match /parent_transactions/{txId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.parentId == request.auth.uid);
+      allow create: if isAuthenticated() && (isAdmin() || request.resource.data.parentId == request.auth.uid);
+      // Only admins may update or delete transactions
+      allow update, delete: if isAdmin();
+    }
+    
+    // ============================================================================
+    // DENY ALL OTHER ACCESS BY DEFAULT
+    // ============================================================================
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

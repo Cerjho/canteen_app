@@ -1,0 +1,25 @@
+{
+  "name": "canteen-app-functions",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint --ext .ts src",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^11.5.0",
+    "firebase-functions": "^4.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5",
+    "eslint": "^8.36.0",
+    "eslint-plugin-import": "^2.27.5",
+    "@typescript-eslint/parser": "^5.59.2",
+    "@typescript-eslint/eslint-plugin": "^5.59.2",
+    "@types/node": "^18.17.0"
+  }
+}

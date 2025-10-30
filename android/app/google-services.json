@@ -1,0 +1,77 @@
+{
+  "project_info": {
+    "project_number": "728315976357",
+    "firebase_url": "https://loheca-canteen-system-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "loheca-canteen-system",
+    "storage_bucket": "loheca-canteen-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:728315976357:android:5b6f052f6af41016f90b4c",
+        "android_client_info": {
+          "package_name": "com.example.admin_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "728315976357-38bjfjvng6gikgprq037ccvb5t1qnalb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.admin_app",
+            "certificate_hash": "69496e1e362d253e08eb7734616c3cdecae5fae6"
+          }
+        },
+        {
+          "client_id": "728315976357-955kovvvfo6kk505s8nko1gn2kkh3ml5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADrPVhyb4c01LPZEQA3g88GtwJStjbCv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "728315976357-955kovvvfo6kk505s8nko1gn2kkh3ml5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:728315976357:android:e761d169f079783bf90b4c",
+        "android_client_info": {
+          "package_name": "com.example.canteen_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "728315976357-955kovvvfo6kk505s8nko1gn2kkh3ml5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADrPVhyb4c01LPZEQA3g88GtwJStjbCv0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "728315976357-955kovvvfo6kk505s8nko1gn2kkh3ml5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

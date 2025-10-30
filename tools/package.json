@@ -1,0 +1,12 @@
+{
+  "name": "canteen-app-tools",
+  "version": "1.0.0",
+  "description": "Utility scripts for canteen_app (Firestore migrations)",
+  "private": true,
+  "scripts": {
+    "migrate:user-roles": "node migrate_user_roles.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0"
+  }
+}

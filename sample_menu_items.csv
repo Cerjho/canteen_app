@@ -1,0 +1,11 @@
+Name,Description,Price,Category,Allergens,IsVegetarian,IsVegan,IsGlutenFree,IsAvailable,StockQuantity
+Pancit Canton,Filipino stir-fried noodles with vegetables and chicken,45.00,Lunch,Wheat,FALSE,FALSE,FALSE,TRUE,50
+Adobong Manok,Classic Filipino chicken adobo with rice,55.00,Lunch,,FALSE,FALSE,TRUE,TRUE,40
+Sinigang na Baboy,Pork in sour tamarind broth with vegetables,60.00,Lunch,,FALSE,FALSE,TRUE,TRUE,35
+Fried Chicken,Crispy fried chicken with rice,50.00,Lunch,Wheat,FALSE,FALSE,FALSE,TRUE,45
+Lumpia Shanghai,Crispy Filipino spring rolls,35.00,Lunch,Wheat,FALSE,FALSE,FALSE,TRUE,60
+Banana Cue,Deep-fried caramelized banana on a stick,15.00,Snack,Soy,TRUE,TRUE,TRUE,TRUE,80
+Turon,Fried banana spring roll with jackfruit,20.00,Snack,Wheat,TRUE,FALSE,FALSE,TRUE,70
+Fresh Buko Juice,Refreshing young coconut juice,25.00,Drinks,,TRUE,TRUE,TRUE,TRUE,100
+Calamansi Juice,Filipino lime juice,20.00,Drinks,,TRUE,TRUE,TRUE,TRUE,100
+Puto,Steamed rice cake,10.00,Snack,,TRUE,TRUE,TRUE,TRUE,90
