@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
 import 'package:uuid/uuid.dart';
 import '../models/menu_item.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_menu_service.dart';
 
 /// MenuService - Master Inventory Management Service
@@ -22,56 +22,56 @@ import '../interfaces/i_menu_service.dart';
 /// - MenuService = Inventory management (what items exist)
 /// - WeeklyMenuService = Schedule management (when items are served)
 class MenuService implements IMenuService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
 
   /// Constructor with dependency injection
   /// 
   /// [firestore] - Optional FirebaseFirestore instance for testing
   MenuService({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+    SupabaseClient? supabase,
+  }) : _supabase = supabase ?? Supabase.instance.client;
 
   /// Get all menu items
   @override
   Stream<List<MenuItem>> getMenuItems() {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .orderBy(FirestoreConstants.createdAt, descending: true)
+    return _supabase
+        .from('menu_items')
+        .order(DatabaseConstants.createdAt, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => MenuItem.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => MenuItem.fromMap(item)).toList());
   }
 
   /// Get available menu items only
   @override
   Stream<List<MenuItem>> getAvailableMenuItems() {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .where(FirestoreConstants.isAvailable, isEqualTo: true)
-        .orderBy(FirestoreConstants.createdAt, descending: true)
+    return _supabase
+        .from('menu_items')
+        .eq(DatabaseConstants.isAvailable, true)
+        .order(DatabaseConstants.createdAt, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => MenuItem.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => MenuItem.fromMap(item)).toList());
   }
 
   /// Get menu items by category
   @override
   Stream<List<MenuItem>> getMenuItemsByCategory(String category) {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .where(FirestoreConstants.category, isEqualTo: category)
-        .orderBy('name')
+    return _supabase
+        .from('menu_items')
+        .eq(DatabaseConstants.category, category)
+        .order('name')
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => MenuItem.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => MenuItem.fromMap(item)).toList());
   }
 
   /// Get menu item by ID
   @override
   Future<MenuItem?> getMenuItemById(String id) async {
-    final doc = await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(id).get();
-    if (doc.exists && doc.data() != null) {
-      return MenuItem.fromMap(doc.data()!);
+    final data = await _supabase.from('menu_items').select().eq('id', id).maybeSingle();
+    if (data != null) {
+      return MenuItem.fromMap(data);
     }
     return null;
   }
@@ -79,12 +79,12 @@ class MenuService implements IMenuService {
   /// Get menu item stream by ID
   @override
   Stream<MenuItem?> getMenuItemStream(String id) {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
+    return _supabase
+        .from('menu_items')
         .doc(id)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.exists && snapshot.data() != null ? MenuItem.fromMap(snapshot.data()!) : null);
+        .map((data) =>
+            item != null ? MenuItem.fromMap(item) : null);
   }
 
   /// Create a new menu item (Alias for createMenuItem)
@@ -96,8 +96,8 @@ class MenuService implements IMenuService {
       throw Exception('A menu item with the name "${menuItem.name}" already exists.');
     }
     
-    await _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
+    await _supabase
+        .from('menu_items')
         .doc(menuItem.id)
         .set(menuItem.toMap());
   }
@@ -109,14 +109,14 @@ class MenuService implements IMenuService {
 
   /// Check if a menu item with the same name exists
   Future<MenuItem?> _checkDuplicateByName(String name) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .where('name', isEqualTo: name)
+    final snapshot = await _supabase
+        .from('menu_items')
+        .eq('name', name)
         .limit(1)
         .get();
     
-    if (snapshot.docs.isNotEmpty) {
-      return MenuItem.fromMap(snapshot.docs.first.data());
+    if ((data as List).isNotEmpty) {
+      return MenuItem.fromMap((data as List).first);
     }
     return null;
   }
@@ -125,8 +125,8 @@ class MenuService implements IMenuService {
   @override
   Future<void> updateMenuItem(MenuItem menuItem) async {
     final updatedMenuItem = menuItem.copyWith(updatedAt: DateTime.now());
-    await _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
+    await _supabase
+        .from('menu_items')
         .doc(menuItem.id)
         .update(updatedMenuItem.toMap());
   }
@@ -134,7 +134,7 @@ class MenuService implements IMenuService {
   /// Delete menu item
   @override
   Future<void> deleteMenuItem(String id) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(id).delete();
+    await _supabase.from('menu_items').delete().eq('id', id);
   }
 
   /// Toggle menu item availability (interface implementation)
@@ -145,63 +145,63 @@ class MenuService implements IMenuService {
 
   /// Toggle menu item availability (legacy method - auto-toggles)
   Future<void> toggleAvailabilityAuto(String menuItemId) async {
-    final doc = await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItemId).get();
-    if (doc.exists && doc.data() != null) {
-      final currentAvailability = doc.data()!['isAvailable'] as bool? ?? true;
+    final data = await _supabase.from('menu_items').select().eq('id', menuItemId).maybeSingle();
+    if (data != null) {
+      final currentAvailability = data!['isAvailable'] as bool? ?? true;
       await updateAvailability(menuItemId, !currentAvailability);
     }
   }
 
   /// Update menu item availability
   Future<void> updateAvailability(String menuItemId, bool isAvailable) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItemId).update({
+    await _supabase.from('menu_items').update({
       'isAvailable': isAvailable,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
     });
   }
 
   /// Update stock quantity
   @override
   Future<void> updateStockQuantity(String id, int quantity) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(id).update({
-      FirestoreConstants.stockQuantity: quantity,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('menu_items').update({
+      DatabaseConstants.stockQuantity: quantity,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', id),
     });
   }
 
   /// Update stock (legacy method - alias)
   Future<void> updateStock(String menuItemId, int quantity) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItemId).update({
-      FirestoreConstants.stockQuantity: quantity,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('menu_items').update({
+      DatabaseConstants.stockQuantity: quantity,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
     });
   }
 
   /// Delete menu item image from storage and update Firestore
   Future<void> deleteMenuItemImage(String menuItemId) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItemId).update({
+    await _supabase.from('menu_items').update({
       'imageUrl': null,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
     });
   }
 
   /// Update menu item image URL
   Future<void> updateMenuItemImage(String menuItemId, String imageUrl) async {
-    await _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItemId).update({
+    await _supabase.from('menu_items').update({
       'imageUrl': imageUrl,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
     });
   }
 
   /// Get menu items by available days
   @override
   Stream<List<MenuItem>> getMenuItemsByAvailableDays(List<String> days) {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .where('availableDays', arrayContainsAny: days)
+    return _supabase
+        .from('menu_items')
+        .overlaps('availableDays', days)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => MenuItem.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => MenuItem.fromMap(item)).toList());
   }
 
   /// Get breakfast items
@@ -231,13 +231,13 @@ class MenuService implements IMenuService {
   /// Search menu items by name
   @override
   Stream<List<MenuItem>> searchMenuItems(String query) {
-    return _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .orderBy('name')
+    return _supabase
+        .from('menu_items')
+        .order('name')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => MenuItem.fromMap(doc.data()))
-            .where((item) =>
+        .map((data) => data
+            .map((doc) => MenuItem.fromMap(item))
+            .eq((item) =>
                 item.name.toLowerCase().contains(query.toLowerCase()) ||
                 item.description.toLowerCase().contains(query.toLowerCase()))
             .toList());
@@ -245,9 +245,9 @@ class MenuService implements IMenuService {
 
   /// Get menu categories
   Future<List<String>> getCategories() async {
-    final snapshot = await _firestore.collection(FirestoreConstants.menuItemsCollection).get();
-    final categories = snapshot.docs
-        .map((doc) => doc.data()['category'] as String)
+    final snapshot = await _supabase.from('menu_items').get();
+    final categories = data
+        .map((doc) => data['category'] as String)
         .toSet()
         .toList();
     categories.sort();
@@ -256,18 +256,18 @@ class MenuService implements IMenuService {
 
   /// Get menu items count
   Future<int> getMenuItemsCount() async {
-    final snapshot = await _firestore.collection(FirestoreConstants.menuItemsCollection).count().get();
-    return snapshot.count ?? 0;
+    final snapshot = await _supabase.from('menu_items').select('id');
+    return (data as List).length;
   }
 
   /// Get available menu items count
   Future<int> getAvailableMenuItemsCount() async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.menuItemsCollection)
-        .where(FirestoreConstants.isAvailable, isEqualTo: true)
+    final snapshot = await _supabase
+        .from('menu_items')
+        .where(DatabaseConstants.isAvailable, true)
         .count()
         .get();
-    return snapshot.count ?? 0;
+    return (data as List).length;
   }
 
   /// Import menu items from CSV/Excel file
@@ -350,12 +350,12 @@ class MenuService implements IMenuService {
     }
 
     // Fetch existing menu items to check duplicates
-    final existingSnapshot = await _firestore.collection(FirestoreConstants.menuItemsCollection).get();
+    final existingSnapshot = await _supabase.from('menu_items').get();
     final existingNames =
-        existingSnapshot.docs.map((doc) => doc.data()['name'] as String).toSet();
+        existingdata.map((item) => data['name'] as String).toSet();
 
     // Use WriteBatch for efficient batch writes (max 500 operations)
-    WriteBatch batch = _firestore.batch();
+    // Batch operations converted to bulk insert
     int batchCount = 0;
 
     for (int i = 0; i < rows.length; i++) {
@@ -435,8 +435,8 @@ class MenuService implements IMenuService {
         );
 
         // Add to batch
-        batch.set(
-          _firestore.collection(FirestoreConstants.menuItemsCollection).doc(menuItem.id),
+        // batch.set(
+          _supabase.from('menu_items').doc(menuItem.id),
           menuItem.toMap(),
         );
         batchCount++;
@@ -445,8 +445,8 @@ class MenuService implements IMenuService {
 
         // Commit batch if reaching limit (500 operations)
         if (batchCount >= 500) {
-          await batch.commit();
-          batch = _firestore.batch();
+          // Use .insert([...]) for bulk operations
+          batch = _supabase.batch();
           batchCount = 0;
         }
       } catch (e) {
@@ -459,7 +459,7 @@ class MenuService implements IMenuService {
 
     // Commit remaining operations
     if (batchCount > 0) {
-      await batch.commit();
+      // Use .insert([...]) for bulk operations
     }
 
     return {

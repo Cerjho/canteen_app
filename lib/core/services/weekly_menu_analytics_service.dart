@@ -1,32 +1,32 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/weekly_menu_analytics.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_weekly_menu_analytics_service.dart';
 
 /// Service for calculating and managing weekly menu analytics
 class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
 
   /// Constructor with dependency injection
   WeeklyMenuAnalyticsService({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+    SupabaseClient? supabase,
+  }) : _supabase = supabase ?? Supabase.instance.client;
 
   /// Get analytics for a specific week
   @override
   Future<WeeklyMenuAnalytics?> getAnalyticsForWeek(String weekStartDate) async {
     try {
-      final querySnapshot = await _firestore
-          .collection(FirestoreConstants.menuAnalyticsCollection)
-          .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+      final querySnapshot = await _supabase
+          .from('menu_analytics')
+          .eq(DatabaseConstants.weekStartDate, weekStartDate)
           .limit(1)
           .get();
 
-      if (querySnapshot.docs.isEmpty) {
+      if (querydata.isEmpty) {
         return null;
       }
 
-      return WeeklyMenuAnalytics.fromMap(querySnapshot.docs.first.data());
+      return WeeklyMenuAnalytics.fromMap(query(data as List).first);
     } catch (e) {
       throw Exception('Failed to get analytics for week: $e');
     }
@@ -35,14 +35,14 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   /// Stream analytics for a specific week
   @override
   Stream<WeeklyMenuAnalytics?> streamAnalyticsForWeek(String weekStartDate) {
-    return _firestore
-        .collection(FirestoreConstants.menuAnalyticsCollection)
-        .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+    return _supabase
+        .from('menu_analytics')
+        .eq(DatabaseConstants.weekStartDate, weekStartDate)
         .limit(1)
         .snapshots()
         .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return WeeklyMenuAnalytics.fromMap(snapshot.docs.first.data());
+      if (data.isEmpty) return null;
+      return WeeklyMenuAnalytics.fromMap((data as List).first);
     });
   }
 
@@ -64,25 +64,25 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
       int totalOrders = 0;
 
       // Query orders for this week
-      final ordersSnapshot = await _firestore
-          .collection(FirestoreConstants.ordersCollection)
-          .where(FirestoreConstants.orderDate, isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart))
-          .where(FirestoreConstants.orderDate, isLessThan: Timestamp.fromDate(weekEnd))
+      final ordersSnapshot = await _supabase
+          .from('orders')
+          .gte(DatabaseConstants.orderDate, weekStart.toIso8601String())
+          .lt(DatabaseConstants.orderDate, weekEnd.toIso8601String())
           .get();
 
       // Process each order
-      for (var orderDoc in ordersSnapshot.docs) {
-        final orderData = orderDoc.data();
-        final orderDate = (orderData[FirestoreConstants.orderDate] as Timestamp).toDate();
+      for (var orderDoc in ordersdata) {
+        final orderData = orderdata;
+        final orderDate = (orderData[DatabaseConstants.orderDate] as Timestamp).toDate();
         final dayName = _getDayName(orderDate.weekday);
         
         // Get items from order
-        final items = orderData[FirestoreConstants.items] as List<dynamic>? ?? [];
+        final items = orderData[DatabaseConstants.items] as List<dynamic>? ?? [];
         
         for (var item in items) {
-          final itemId = item[FirestoreConstants.menuItemId] as String?;
-          final mealType = item[FirestoreConstants.mealType] as String? ?? 'unknown';
-          final quantity = item[FirestoreConstants.quantity] as int? ?? 1;
+          final itemId = item[DatabaseConstants.menuItemId] as String?;
+          final mealType = item[DatabaseConstants.mealType] as String? ?? 'unknown';
+          final quantity = item[DatabaseConstants.quantity] as int? ?? 1;
           
           if (itemId == null) continue;
           
@@ -121,8 +121,8 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
       );
 
       // Save to Firestore
-      await _firestore
-          .collection(FirestoreConstants.menuAnalyticsCollection)
+      await _supabase
+          .from('menu_analytics')
           .doc(analytics.id)
           .set(analytics.toMap());
 
@@ -157,14 +157,14 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   @override
   Future<List<WeeklyMenuAnalytics>> getRecentAnalytics(int numberOfWeeks) async {
     try {
-      final querySnapshot = await _firestore
-          .collection(FirestoreConstants.menuAnalyticsCollection)
-          .orderBy(FirestoreConstants.weekStartDate, descending: true)
+      final querySnapshot = await _supabase
+          .from('menu_analytics')
+          .order(DatabaseConstants.weekStartDate, ascending: false)
           .limit(numberOfWeeks)
           .get();
 
-      return querySnapshot.docs
-          .map((doc) => WeeklyMenuAnalytics.fromMap(doc.data()))
+      return querydata
+          .map((doc) => WeeklyMenuAnalytics.fromMap(item))
           .toList();
     } catch (e) {
       throw Exception('Failed to get recent analytics: $e');
@@ -181,12 +181,12 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   @override
   Future<void> deleteAnalytics(String weekStartDate) async {
     try {
-      final querySnapshot = await _firestore
-          .collection(FirestoreConstants.menuAnalyticsCollection)
-          .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+      final querySnapshot = await _supabase
+          .from('menu_analytics')
+          .eq(DatabaseConstants.weekStartDate, weekStartDate)
           .get();
 
-      for (var doc in querySnapshot.docs) {
+      for (var doc in querydata) {
         await doc.reference.delete();
       }
     } catch (e) {

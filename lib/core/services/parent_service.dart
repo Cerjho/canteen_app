@@ -1,6 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/parent.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_parent_service.dart';
 import 'user_service.dart';
 
@@ -28,7 +28,7 @@ import 'user_service.dart';
 /// - Use `UserService` to get user's name and email
 /// - Use `RegistrationService.registerParent()` to create new parents atomically
 class ParentService implements IParentService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
   final UserService _userService;
 
   /// Constructor with dependency injection
@@ -36,9 +36,9 @@ class ParentService implements IParentService {
   /// [firestore] - Optional FirebaseFirestore instance for testing
   /// [userService] - Optional UserService instance for testing
   ParentService({
-    FirebaseFirestore? firestore,
+    SupabaseClient? supabase,
     UserService? userService,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _supabase = supabase ?? Supabase.instance.client,
         _userService = userService ?? UserService();
 
   /// Get all parents
@@ -47,12 +47,12 @@ class ParentService implements IParentService {
   /// To get full parent details, combine with UserService.getUser()
   @override
   Stream<List<Parent>> getParents() {
-    return _firestore
-        .collection(FirestoreConstants.parentsCollection)
-        .orderBy(FirestoreConstants.createdAt, descending: true)
+    return _supabase
+        .from('parents')
+        .order(DatabaseConstants.createdAt, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Parent.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Parent.fromMap(item)).toList());
   }
 
   /// Get parent by ID (userId)
@@ -61,9 +61,9 @@ class ParentService implements IParentService {
   /// use `UserService.getUser(parent.userId)`.
   @override
   Future<Parent?> getParentById(String userId) async {
-    final doc = await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).get();
-    if (doc.exists && doc.data() != null) {
-      return Parent.fromMap(doc.data()!);
+    final data = await _supabase.from('parents').select().eq('id', userId).maybeSingle();
+    if (data != null) {
+      return Parent.fromMap(data);
     }
     return null;
   }
@@ -74,13 +74,13 @@ class ParentService implements IParentService {
   /// real-time changes to parent profile (balance, photo, etc.).
   @override
   Stream<Parent?> getParentStream(String userId) {
-    return _firestore
-        .collection(FirestoreConstants.parentsCollection)
+    return _supabase
+        .from('parents')
         .doc(userId)
         .snapshots()
         .map((doc) {
-      if (doc.exists && doc.data() != null) {
-        return Parent.fromMap(doc.data()!);
+      if (data != null) {
+        return Parent.fromMap(data);
       }
       return null;
     });
@@ -124,7 +124,7 @@ class ParentService implements IParentService {
   /// Use `RegistrationService.registerParent()` instead to create
   /// both the user account and parent document atomically.
   Future<void> createParent(Parent parent) async {
-    await _firestore.collection(FirestoreConstants.parentsCollection).doc(parent.userId).set(parent.toMap());
+    await _supabase.from('parents').insert(parent.toMap());
   }
 
   /// Add a new parent (interface implementation)
@@ -140,8 +140,8 @@ class ParentService implements IParentService {
   @override
   Future<void> updateParent(Parent parent) async {
     final updatedParent = parent.copyWith(updatedAt: DateTime.now());
-    await _firestore
-        .collection(FirestoreConstants.parentsCollection)
+    await _supabase
+        .from('parents')
         .doc(parent.userId)
         .update(updatedParent.toMap());
   }
@@ -155,13 +155,13 @@ class ParentService implements IParentService {
     String? phone,
   }) async {
     final updates = <String, dynamic>{
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     };
 
     if (address != null) updates['address'] = address;
     if (phone != null) updates['phone'] = phone;
 
-    await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).update(updates);
+    await _supabase.from('parents').update(updates).eq('id', userId);
   }
 
   /// Delete parent
@@ -173,7 +173,7 @@ class ParentService implements IParentService {
   /// - Unlinking all students
   @override
   Future<void> deleteParent(String userId) async {
-    await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).delete();
+    await _supabase.from('parents').delete().eq('id', userId);
   }
 
   /// Update parent balance
@@ -181,9 +181,9 @@ class ParentService implements IParentService {
   /// Used for top-ups and deductions.
   @override
   Future<void> updateBalance(String userId, double newBalance) async {
-    await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).update({
-      FirestoreConstants.balance: newBalance,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('parents').update({
+      DatabaseConstants.balance: newBalance,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
     });
   }
 
@@ -233,9 +233,9 @@ class ParentService implements IParentService {
       }
       
       final updatedChildren = [...parent.children, studentId];
-      await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).update({
+      await _supabase.from('parents').update({
         'children': updatedChildren,
-        FirestoreConstants.updatedAt: Timestamp.now(),
+        DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
       });
     }
   }
@@ -249,9 +249,9 @@ class ParentService implements IParentService {
     final parent = await getParentById(userId);
     if (parent != null) {
       final updatedChildren = parent.children.where((id) => id != studentId).toList();
-      await _firestore.collection(FirestoreConstants.parentsCollection).doc(userId).update({
+      await _supabase.from('parents').update({
         'children': updatedChildren,
-        FirestoreConstants.updatedAt: Timestamp.now(),
+        DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
       });
     }
   }
@@ -270,7 +270,7 @@ class ParentService implements IParentService {
     required List<String> orderIds,
     required String reason,
   }) async {
-    final transactionsRef = _firestore.collection('parent_transactions');
+    final transactionsRef = _supabase.from('parent_transactions');
     final txDoc = transactionsRef.doc();
     final payload = {
       'parentId': parentId,
@@ -279,7 +279,7 @@ class ParentService implements IParentService {
       'balanceAfter': balanceAfter,
       'orderIds': orderIds,
       'reason': reason,
-      FirestoreConstants.createdAt: Timestamp.now(),
+      DatabaseConstants.createdAt: DateTime.now().toIso8601String(),
     };
 
     tx.set(txDoc, payload);
@@ -303,13 +303,13 @@ class ParentService implements IParentService {
   /// This is a client-side filter operation and may be slow for large datasets.
   @override
   Stream<List<Parent>> searchParents(String query) {
-    return _firestore
-        .collection(FirestoreConstants.parentsCollection)
+    return _supabase
+        .from('parents')
         .snapshots()
         .map((snapshot) {
       final lowercaseQuery = query.toLowerCase();
-      return snapshot.docs
-          .map((doc) => Parent.fromMap(doc.data()))
+      return data
+          .map((doc) => Parent.fromMap(item))
           .where((parent) =>
               (parent.phone?.toLowerCase().contains(lowercaseQuery) ?? false) ||
               (parent.address?.toLowerCase().contains(lowercaseQuery) ?? false))
@@ -327,10 +327,10 @@ class ParentService implements IParentService {
     final results = <Map<String, dynamic>>[];
 
     // Get all parents
-    final parentsSnapshot = await _firestore.collection(FirestoreConstants.parentsCollection).get();
+    final parentsSnapshot = await _supabase.from('parents').get();
     
-    for (final parentDoc in parentsSnapshot.docs) {
-      final parent = Parent.fromMap(parentDoc.data());
+    for (final parentDoc in parentsdata) {
+      final parent = Parent.fromMap(parentdata);
       
       // Check if phone or address matches
       final phoneMatch = parent.phone?.toLowerCase().contains(lowercaseQuery) ?? false;
@@ -366,21 +366,21 @@ class ParentService implements IParentService {
 
   /// Get parents count
   Future<int> getParentsCount() async {
-    final snapshot = await _firestore.collection(FirestoreConstants.parentsCollection).count().get();
-    return snapshot.count ?? 0;
+    final snapshot = await _supabase.from('parents').select('id');
+    return (data as List).length;
   }
 
   /// Get parents with low balance
   /// 
   /// Returns parents whose balance is below the specified threshold.
   Future<List<Parent>> getParentsWithLowBalance(double threshold) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.parentsCollection)
-        .where(FirestoreConstants.balance, isLessThan: threshold)
+    final snapshot = await _supabase
+        .from('parents')
+        .lt(DatabaseConstants.balance, threshold)
         .get();
 
-    return snapshot.docs
-        .map((doc) => Parent.fromMap(doc.data()))
+    return data
+        .map((doc) => Parent.fromMap(item))
         .toList();
   }
 
@@ -388,13 +388,13 @@ class ParentService implements IParentService {
   /// 
   /// Returns all parents who have the specified student in their children array.
   Future<List<Parent>> getParentsByStudent(String studentId) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.parentsCollection)
-        .where('children', arrayContains: studentId)
+    final snapshot = await _supabase
+        .from('parents')
+        .contains('children', [studentId])
         .get();
 
-    return snapshot.docs
-        .map((doc) => Parent.fromMap(doc.data()))
+    return data
+        .map((doc) => Parent.fromMap(item))
         .toList();
   }
 

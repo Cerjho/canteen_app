@@ -1,40 +1,40 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/order.dart' as app_models;
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_order_service.dart';
 
 /// Order Service - handles all Order-related Firestore operations
 class OrderService implements IOrderService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
 
   /// Constructor with dependency injection
   /// 
   /// [firestore] - Optional FirebaseFirestore instance for testing
   OrderService({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+    SupabaseClient? supabase,
+  }) : _supabase = supabase ?? Supabase.instance.client;
 
   /// Get all orders
   @override
   Stream<List<app_models.Order>> getOrders() {
-    return _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .orderBy(FirestoreConstants.orderDate, descending: true)
+    return _supabase
+        .from('orders')
+        .order(DatabaseConstants.orderDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => app_models.Order.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => app_models.Order.fromMap(item)).toList());
   }
 
   /// Get orders by status (interface implementation - accepts String)
   @override
   Stream<List<app_models.Order>> getOrdersByStatus(String status) {
-    return _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .where(FirestoreConstants.status, isEqualTo: status)
-        .orderBy(FirestoreConstants.orderDate, descending: true)
+    return _supabase
+        .from('orders')
+        .eq(DatabaseConstants.status, status)
+        .order(DatabaseConstants.orderDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => app_models.Order.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => app_models.Order.fromMap(item)).toList());
   }
 
   /// Get orders by status enum (legacy method)
@@ -45,26 +45,26 @@ class OrderService implements IOrderService {
   /// Get orders by student
   @override
   Stream<List<app_models.Order>> getOrdersByStudent(String studentId) {
-    return _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .where(FirestoreConstants.studentId, isEqualTo: studentId)
-        .orderBy(FirestoreConstants.orderDate, descending: true)
+    return _supabase
+        .from('orders')
+        .eq(DatabaseConstants.studentId, studentId)
+        .order(DatabaseConstants.orderDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => app_models.Order.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => app_models.Order.fromMap(item)).toList());
   }
 
   /// Get orders by date range
   @override
   Stream<List<app_models.Order>> getOrdersByDateRange(DateTime start, DateTime end) {
-    return _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .where(FirestoreConstants.orderDate, isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where(FirestoreConstants.orderDate, isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .orderBy(FirestoreConstants.orderDate, descending: true)
+    return _supabase
+        .from('orders')
+        .gte(DatabaseConstants.orderDate, start.toIso8601String())
+        .lte(DatabaseConstants.orderDate, end.toIso8601String())
+        .order(DatabaseConstants.orderDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => app_models.Order.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => app_models.Order.fromMap(item)).toList());
   }
 
   /// Get today's orders
@@ -79,9 +79,9 @@ class OrderService implements IOrderService {
   /// Get order by ID
   @override
   Future<app_models.Order?> getOrderById(String id) async {
-    final doc = await _firestore.collection(FirestoreConstants.ordersCollection).doc(id).get();
-    if (doc.exists && doc.data() != null) {
-      return app_models.Order.fromMap(doc.data()!);
+    final data = await _supabase.from('orders').select().eq('id', id).maybeSingle();
+    if (data != null) {
+      return app_models.Order.fromMap(data);
     }
     return null;
   }
@@ -89,13 +89,13 @@ class OrderService implements IOrderService {
   /// Create a new order
   @override
   Future<void> createOrder(app_models.Order order) async {
-    await _firestore.collection(FirestoreConstants.ordersCollection).doc(order.id).set(order.toMap());
+    await _supabase.from('orders').insert(order.toMap());
   }
 
   /// Update order
   Future<void> updateOrder(app_models.Order order) async {
-    await _firestore
-        .collection(FirestoreConstants.ordersCollection)
+    await _supabase
+        .from('orders')
         .doc(order.id)
         .update(order.toMap());
   }
@@ -104,10 +104,10 @@ class OrderService implements IOrderService {
   @override
   Future<void> updateOrderStatus(String orderId, String status) async {
     final Map<String, dynamic> updateData = {
-      FirestoreConstants.status: status,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.status: status,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     };
-    await _firestore.collection(FirestoreConstants.ordersCollection).doc(orderId).update(updateData);
+    await _supabase.from('orders').update(updateData).eq('id', orderId);
   }
 
   /// Update order status enum (legacy method)
@@ -124,7 +124,7 @@ class OrderService implements IOrderService {
   /// Delete an order
   @override
   Future<void> deleteOrder(String id) async {
-    await _firestore.collection(FirestoreConstants.ordersCollection).doc(id).delete();
+    await _supabase.from('orders').delete().eq('id', id);
   }
 
   /// Get orders by parent ID
@@ -149,13 +149,13 @@ class OrderService implements IOrderService {
   Future<int> getOrdersCountByDate(DateTime date) async {
     final startOfDay = DateTime(date.year, date.month, date.day);
     final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .where(FirestoreConstants.orderDate, isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-        .where(FirestoreConstants.orderDate, isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+    final snapshot = await _supabase
+        .from('orders')
+        .gte(DatabaseConstants.orderDate, startOfDay.toIso8601String())
+        .lte(DatabaseConstants.orderDate, endOfDay.toIso8601String())
         .count()
         .get();
-    return snapshot.count ?? 0;
+    return (data as List).length;
   }
 
   /// Get total revenue by date
@@ -185,27 +185,27 @@ class OrderService implements IOrderService {
   /// Update order status (legacy method - accepts enum)
   Future<void> updateOrderStatusLegacy(String orderId, app_models.OrderStatus status) async {
     final Map<String, dynamic> updateData = {
-      FirestoreConstants.status: status.name,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.status: status.name,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     };
 
     if (status == app_models.OrderStatus.completed) {
-      updateData['completedAt'] = Timestamp.now();
+      updateData['completedAt'] = DateTime.now().toIso8601String();
     }
 
-    await _firestore.collection(FirestoreConstants.ordersCollection).doc(orderId).update(updateData);
+    await _supabase.from('orders').update(updateData).eq('id', orderId);
   }
 
   /// Get order statistics for date range
   Future<Map<String, dynamic>> getOrderStatistics(
       DateTime start, DateTime end) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.ordersCollection)
-        .where(FirestoreConstants.orderDate, isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where(FirestoreConstants.orderDate, isLessThanOrEqualTo: Timestamp.fromDate(end))
+    final snapshot = await _supabase
+        .from('orders')
+        .gte(DatabaseConstants.orderDate, start.toIso8601String())
+        .lte(DatabaseConstants.orderDate, end.toIso8601String())
         .get();
 
-    final orders = snapshot.docs.map((doc) => app_models.Order.fromMap(doc.data())).toList();
+    final orders = data.map((item) => app_models.Order.fromMap(item)).toList();
 
     double totalRevenue = 0;
     int totalOrders = orders.length;

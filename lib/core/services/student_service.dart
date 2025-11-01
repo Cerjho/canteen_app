@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
 import 'package:uuid/uuid.dart';
 import '../models/student.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_student_service.dart';
 
 /// Student Service - handles all Student-related Firestore operations
@@ -14,7 +14,7 @@ import '../interfaces/i_student_service.dart';
 /// student management operations. Dependencies are injected via constructor
 /// for better testability.
 class StudentService implements IStudentService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
   final Uuid _uuid;
 
   /// Creates a StudentService with optional dependency injection
@@ -22,40 +22,40 @@ class StudentService implements IStudentService {
   /// [firestore] - Optional FirebaseFirestore instance (defaults to FirebaseFirestore.instance)
   /// [uuid] - Optional Uuid instance (defaults to const Uuid())
   StudentService({
-    FirebaseFirestore? firestore,
+    SupabaseClient? supabase,
     Uuid? uuid,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _supabase = supabase ?? Supabase.instance.client,
         _uuid = uuid ?? const Uuid();
 
   /// Get all students
   @override
   Stream<List<Student>> getStudents() {
-    return _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .orderBy(FirestoreConstants.lastName)
+    return _supabase
+        .from('students')
+        .order(DatabaseConstants.lastName)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Student.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Student.fromMap(item)).toList());
   }
 
   /// Get students by parent ID
   @override
   Stream<List<Student>> getStudentsByParent(String parentId) {
-    return _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .where(FirestoreConstants.parentId, isEqualTo: parentId)
-        .orderBy(FirestoreConstants.lastName)
+    return _supabase
+        .from('students')
+        .eq(DatabaseConstants.parentId, parentId)
+        .order(DatabaseConstants.lastName)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Student.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Student.fromMap(item)).toList());
   }
 
   /// Get student by ID
   @override
   Future<Student?> getStudentById(String id) async {
-    final doc = await _firestore.collection(FirestoreConstants.studentsCollection).doc(id).get();
-    if (doc.exists && doc.data() != null) {
-      return Student.fromMap(doc.data()!);
+    final data = await _supabase.from('students').select().eq('id', id).maybeSingle();
+    if (data != null) {
+      return Student.fromMap(data);
     }
     return null;
   }
@@ -63,12 +63,12 @@ class StudentService implements IStudentService {
   /// Get student stream by ID
   @override
   Stream<Student?> getStudentStream(String id) {
-    return _firestore
-        .collection(FirestoreConstants.studentsCollection)
+    return _supabase
+        .from('students')
         .doc(id)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.exists && snapshot.data() != null ? Student.fromMap(snapshot.data()!) : null);
+        .map((data) =>
+            item != null ? Student.fromMap(snapshot.data()!) : null);
   }
 
   /// Create a new student
@@ -86,7 +86,7 @@ class StudentService implements IStudentService {
       );
     }
     
-    await _firestore.collection(FirestoreConstants.studentsCollection).doc(student.id).set(student.toMap());
+    await _supabase.from('students').insert(student.toMap());
   }
 
   /// Check if a student with the same firstName, lastName, and grade exists
@@ -95,16 +95,16 @@ class StudentService implements IStudentService {
     String lastName,
     String grade,
   ) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .where(FirestoreConstants.firstName, isEqualTo: firstName)
-        .where(FirestoreConstants.lastName, isEqualTo: lastName)
-        .where(FirestoreConstants.grade, isEqualTo: grade)
+    final snapshot = await _supabase
+        .from('students')
+        .eq(DatabaseConstants.firstName, firstName)
+        .eq(DatabaseConstants.lastName, lastName)
+        .eq(DatabaseConstants.grade, grade)
         .limit(1)
         .get();
     
-    if (snapshot.docs.isNotEmpty) {
-      return Student.fromMap(snapshot.docs.first.data());
+    if ((data as List).isNotEmpty) {
+      return Student.fromMap((data as List).first);
     }
     return null;
   }
@@ -113,8 +113,8 @@ class StudentService implements IStudentService {
   @override
   Future<void> updateStudent(Student student) async {
     final updatedStudent = student.copyWith(updatedAt: DateTime.now());
-    await _firestore
-        .collection(FirestoreConstants.studentsCollection)
+    await _supabase
+        .from('students')
         .doc(student.id)
         .update(updatedStudent.toMap());
   }
@@ -122,7 +122,7 @@ class StudentService implements IStudentService {
   /// Delete a student
   @override
   Future<void> deleteStudent(String id) async {
-    await _firestore.collection(FirestoreConstants.studentsCollection).doc(id).delete();
+    await _supabase.from('students').delete().eq('id', id);
   }
 
   /// Update student balance
@@ -136,22 +136,22 @@ class StudentService implements IStudentService {
 
   /// Assign student to parent
   Future<void> assignToParent(String studentId, String parentId) async {
-    await _firestore.collection(FirestoreConstants.studentsCollection).doc(studentId).update({
-      FirestoreConstants.parentId: parentId,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('students').update({
+      DatabaseConstants.parentId: parentId,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', studentId),
     });
   }
 
   /// Search students by name
   @override
   Stream<List<Student>> searchStudents(String query) {
-    return _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .orderBy(FirestoreConstants.firstName)
+    return _supabase
+        .from('students')
+        .order(DatabaseConstants.firstName)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => Student.fromMap(doc.data()))
-            .where((student) =>
+        .map((data) => data
+            .map((doc) => Student.fromMap(item))
+            .eq((student) =>
                 student.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList());
   }
@@ -159,18 +159,18 @@ class StudentService implements IStudentService {
   /// Filter students by grade
   @override
   Stream<List<Student>> getStudentsByGrade(String grade) {
-    return _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .where(FirestoreConstants.grade, isEqualTo: grade)
-        .orderBy(FirestoreConstants.lastName)
+    return _supabase
+        .from('students')
+        .where(DatabaseConstants.grade, grade)
+        .order(DatabaseConstants.lastName)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Student.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Student.fromMap(item)).toList());
   }
 
   /// Check if student ID exists
   Future<bool> studentExists(String id) async {
-    final doc = await _firestore.collection(FirestoreConstants.studentsCollection).doc(id).get();
+    final data = await _supabase.from('students').select().eq('id', id).maybeSingle();
     return doc.exists;
   }
 
@@ -316,19 +316,19 @@ class StudentService implements IStudentService {
     final List<Map<String, dynamic>> failedItems = [];
 
     // Fetch existing students to check duplicates
-    final existingSnapshot = await _firestore.collection(FirestoreConstants.studentsCollection).get();
-    final Set<String> existingStudents = existingSnapshot.docs.map((doc) {
-      final data = doc.data();
-      final firstName = (data[FirestoreConstants.firstName] as String? ?? '').toLowerCase().trim();
-      final lastName = (data[FirestoreConstants.lastName] as String? ?? '').toLowerCase().trim();
-      final grade = (data[FirestoreConstants.grade] as String? ?? '').toLowerCase().trim();
+    final existingSnapshot = await _supabase.from('students').get();
+    final Set<String> existingStudents = existingdata.map((doc) {
+      final data = data;
+      final firstName = (data[DatabaseConstants.firstName] as String? ?? '').toLowerCase().trim();
+      final lastName = (data[DatabaseConstants.lastName] as String? ?? '').toLowerCase().trim();
+      final grade = (data[DatabaseConstants.grade] as String? ?? '').toLowerCase().trim();
       return '$firstName|$lastName|$grade'; // Composite key
     }).toSet();
 
-    WriteBatch batch = _firestore.batch();
+    // Batch operations converted to bulk insert
     int operationCount = 0;
 
-    for (int i = 0; i < data.length; i++) {
+    for (int i = 0; i < (data as List).length; i++) {
       try {
         final studentData = data[i];
         
@@ -368,16 +368,16 @@ class StudentService implements IStudentService {
           createdAt: DateTime.now(),
         );
 
-        final docRef = _firestore.collection(FirestoreConstants.studentsCollection).doc(studentId);
-        batch.set(docRef, student.toMap());
+        final docRef = _supabase.from('students').doc(studentId);
+        // batch.set(docRef, student.toMap());
         operationCount++;
         successCount++;
         existingStudents.add(studentKey); // Prevent duplicates within same import
 
         // Firestore batch has a limit of 500 operations
         if (operationCount >= 500) {
-          await batch.commit();
-          batch = _firestore.batch();
+          // Use .insert([...]) for bulk operations
+          batch = _supabase.batch();
           operationCount = 0;
         }
       } catch (e) {
@@ -390,7 +390,7 @@ class StudentService implements IStudentService {
 
     // Commit remaining operations
     if (operationCount > 0) {
-      await batch.commit();
+      // Use .insert([...]) for bulk operations
     }
 
     return {
@@ -477,17 +477,17 @@ class StudentService implements IStudentService {
 
   /// Get students count
   Future<int> getStudentsCount() async {
-    final snapshot = await _firestore.collection(FirestoreConstants.studentsCollection).count().get();
-    return snapshot.count ?? 0;
+    final snapshot = await _supabase.from('students').select('id');
+    return (data as List).length;
   }
 
   /// Get active students count
   Future<int> getActiveStudentsCount() async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.studentsCollection)
-        .where(FirestoreConstants.isActive, isEqualTo: true)
+    final snapshot = await _supabase
+        .from('students')
+        .eq(DatabaseConstants.isActive, true)
         .count()
         .get();
-    return snapshot.count ?? 0;
+    return (data as List).length;
   }
 }

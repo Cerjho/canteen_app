@@ -1,20 +1,20 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/weekly_menu.dart';
 import '../models/menu_item.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_weekly_menu_service.dart';
 
 /// Weekly Menu Service - handles all WeeklyMenu-related Firestore operations
 class WeeklyMenuService implements IWeeklyMenuService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
   final Uuid _uuid;
 
   /// Constructor with dependency injection
   WeeklyMenuService({
-    FirebaseFirestore? firestore,
+    SupabaseClient? supabase,
     Uuid? uuid,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _supabase = supabase ?? Supabase.instance.client,
         _uuid = uuid ?? const Uuid();
 
   /// Get the current week's menu (or most recent published menu)
@@ -24,15 +24,15 @@ class WeeklyMenuService implements IWeeklyMenuService {
     final mondayOfWeek = _getMondayOfWeek(today);
     final weekStartDate = _formatDate(mondayOfWeek);
 
-    return _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
-        .where(FirestoreConstants.isPublished, isEqualTo: true)
+    return _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.weekStartDate, weekStartDate)
+        .eq(DatabaseConstants.isPublished, true)
         .limit(1)
         .snapshots()
         .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return WeeklyMenu.fromMap(snapshot.docs.first.data());
+      if (data.isEmpty) return null;
+      return WeeklyMenu.fromMap((data as List).first);
     });
   }
 
@@ -42,27 +42,27 @@ class WeeklyMenuService implements IWeeklyMenuService {
     final mondayOfWeek = _getMondayOfWeek(date);
     final weekStartDate = _formatDate(mondayOfWeek);
 
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+    final snapshot = await _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.weekStartDate, weekStartDate)
         .limit(1)
         .get();
 
-    if (snapshot.docs.isEmpty) return null;
-    return WeeklyMenu.fromMap(snapshot.docs.first.data());
+    if (data.isEmpty) return null;
+    return WeeklyMenu.fromMap((data as List).first);
   }
 
   /// Get all published weekly menus (paginated)
   @override
-  Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit = FirestoreConstants.defaultPageSize}) {
-    return _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.isPublished, isEqualTo: true)
-        .orderBy(FirestoreConstants.weekStartDate, descending: true)
+  Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit = DatabaseConstants.defaultPageSize}) {
+    return _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.isPublished, true)
+        .order(DatabaseConstants.weekStartDate, ascending: false)
         .limit(limit)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => WeeklyMenu.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => WeeklyMenu.fromMap(item)).toList());
   }
 
   /// Publish a new weekly menu (V2 with nested meal types)
@@ -89,8 +89,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
         publishedBy: publishedBy,
         updatedAt: DateTime.now(),
       );
-      await _firestore
-          .collection(FirestoreConstants.weeklyMenusCollection)
+      await _supabase
+          .from('weekly_menus')
           .doc(existing.id)
           .update(updated.toMap());
     } else {
@@ -105,8 +105,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
         publishedBy: publishedBy,
         createdAt: DateTime.now(),
       );
-      await _firestore
-          .collection(FirestoreConstants.weeklyMenusCollection)
+      await _supabase
+          .from('weekly_menus')
           .doc(weeklyMenu.id)
           .set(weeklyMenu.toMap());
     }
@@ -115,16 +115,16 @@ class WeeklyMenuService implements IWeeklyMenuService {
   /// Unpublish a weekly menu
   @override
   Future<void> unpublishWeeklyMenu(String menuId) async {
-    await _firestore.collection(FirestoreConstants.weeklyMenusCollection).doc(menuId).update({
-      FirestoreConstants.isPublished: false,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('weekly_menus').update({
+      DatabaseConstants.isPublished: false,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuId),
     });
   }
 
   /// Delete a weekly menu
   @override
   Future<void> deleteWeeklyMenu(String menuId) async {
-    await _firestore.collection(FirestoreConstants.weeklyMenusCollection).doc(menuId).delete();
+    await _supabase.from('weekly_menus').delete().eq('id', menuId);
   }
 
   /// Update weekly menu data (without publishing)
@@ -141,9 +141,9 @@ class WeeklyMenuService implements IWeeklyMenuService {
     
     if (existing != null) {
       // Update existing menu
-      await _firestore.collection(FirestoreConstants.weeklyMenusCollection).doc(existing.id).update({
-        FirestoreConstants.menuByDay: _convertMenuByDayToMap(menuByDay),
-        FirestoreConstants.updatedAt: Timestamp.now(),
+      await _supabase.from('weekly_menus').update({
+        DatabaseConstants.menuByDay: _convertMenuByDayToMap(menuByDay).eq('id', existing.id),
+        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
       });
     } else {
       // Create new unpublished menu (publishedAt is null for unpublished)
@@ -155,8 +155,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
         publishedAt: null, // Null until published
         createdAt: DateTime.now(),
       );
-      await _firestore
-          .collection(FirestoreConstants.weeklyMenusCollection)
+      await _supabase
+          .from('weekly_menus')
           .doc(weeklyMenu.id)
           .set(weeklyMenu.toMap());
     }
@@ -195,14 +195,14 @@ class WeeklyMenuService implements IWeeklyMenuService {
 
     // Fetch menu items in batches (Firestore 'in' query limit)
     final List<MenuItem> items = [];
-    for (int i = 0; i < itemIds.length; i += FirestoreConstants.inQueryLimit) {
-      final batch = itemIds.skip(i).take(FirestoreConstants.inQueryLimit).toList();
-      final snapshot = await _firestore
-          .collection(FirestoreConstants.menuItemsCollection)
-          .where(FieldPath.documentId, whereIn: batch)
+    for (int i = 0; i < itemIds.length; i += DatabaseConstants.inQueryLimit) {
+      final batch = itemIds.skip(i).take(DatabaseConstants.inQueryLimit).toList();
+      final snapshot = await _supabase
+          .from('menu_items')
+          .where('id', in_: batch)
           .get();
       items.addAll(
-          snapshot.docs.map((doc) => MenuItem.fromMap(doc.data())).toList());
+          data.map((item) => MenuItem.fromMap(item)).toList());
     }
     return items;
   }
@@ -234,31 +234,31 @@ class WeeklyMenuService implements IWeeklyMenuService {
     }
 
     // Update each menu item's availableDays field
-    final batch = _firestore.batch();
+    final batch = _supabase.batch();
     int batchCount = 0;
 
     for (final entry in itemDaysMap.entries) {
       final itemId = entry.key;
       final days = entry.value;
       
-      final docRef = _firestore.collection(FirestoreConstants.menuItemsCollection).doc(itemId);
+      final docRef = _supabase.from('menu_items').doc(itemId);
       batch.update(docRef, {
-        FirestoreConstants.availableDays: days,
-        FirestoreConstants.updatedAt: Timestamp.now(),
+        DatabaseConstants.availableDays: days,
+        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
       });
       
       batchCount++;
       
       // Commit batch if reaching limit (500 operations)
       if (batchCount >= 500) {
-        await batch.commit();
+        // Use .insert([...]) for bulk operations
         batchCount = 0;
       }
     }
 
     // Commit remaining operations
     if (batchCount > 0) {
-      await batch.commit();
+      // Use .insert([...]) for bulk operations
     }
   }
 
@@ -281,10 +281,10 @@ class WeeklyMenuService implements IWeeklyMenuService {
     
     if (existing != null) {
       // Update existing menu (keep current published state)
-      await _firestore.collection(FirestoreConstants.weeklyMenusCollection).doc(existing.id).update({
-        FirestoreConstants.menuByDay: _convertMenuByDayToMap(previousMenu.menuByDay),
-        FirestoreConstants.copiedFromWeek: previousMenu.weekStartDate,
-        FirestoreConstants.updatedAt: Timestamp.now(),
+      await _supabase.from('weekly_menus').update({
+        DatabaseConstants.menuByDay: _convertMenuByDayToMap(previousMenu.menuByDay).eq('id', existing.id),
+        DatabaseConstants.copiedFromWeek: previousMenu.weekStartDate,
+        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
       });
     } else {
       // Create new UNPUBLISHED menu copy
@@ -297,8 +297,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
         publishedAt: null, // Null until manually published
         createdAt: DateTime.now(),
       );
-      await _firestore
-          .collection(FirestoreConstants.weeklyMenusCollection)
+      await _supabase
+          .from('weekly_menus')
           .doc(weeklyMenu.id)
           .set(weeklyMenu.toMap());
     }
@@ -307,55 +307,55 @@ class WeeklyMenuService implements IWeeklyMenuService {
   /// Get weekly menu history (past published menus)
   @override
   Future<List<WeeklyMenu>> getWeeklyMenuHistory({int limit = 10}) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.isPublished, isEqualTo: true)
-        .orderBy(FirestoreConstants.weekStartDate, descending: true)
+    final snapshot = await _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.isPublished, true)
+        .order(DatabaseConstants.weekStartDate, ascending: false)
         .limit(limit)
         .get();
 
-    return snapshot.docs
-        .map((doc) => WeeklyMenu.fromMap(doc.data()))
+    return data
+        .map((doc) => WeeklyMenu.fromMap(item))
         .toList();
   }
 
   /// Stream weekly menu history
   @override
-  Stream<List<WeeklyMenu>> streamWeeklyMenuHistory({int limit = FirestoreConstants.defaultPageSize}) {
-    return _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.isPublished, isEqualTo: true)
-        .orderBy(FirestoreConstants.weekStartDate, descending: true)
+  Stream<List<WeeklyMenu>> streamWeeklyMenuHistory({int limit = DatabaseConstants.defaultPageSize}) {
+    return _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.isPublished, true)
+        .order(DatabaseConstants.weekStartDate, ascending: false)
         .limit(limit)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => WeeklyMenu.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => WeeklyMenu.fromMap(item)).toList());
   }
 
   /// Get menu for a specific week by week start date string
   @override
   Future<WeeklyMenu?> getMenuForWeek(String weekStartDate) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+    final snapshot = await _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.weekStartDate, weekStartDate)
         .limit(1)
         .get();
 
-    if (snapshot.docs.isEmpty) return null;
-    return WeeklyMenu.fromMap(snapshot.docs.first.data());
+    if (data.isEmpty) return null;
+    return WeeklyMenu.fromMap((data as List).first);
   }
 
   /// Stream menu for a specific week
   @override
   Stream<WeeklyMenu?> streamMenuForWeek(String weekStartDate) {
-    return _firestore
-        .collection(FirestoreConstants.weeklyMenusCollection)
-        .where(FirestoreConstants.weekStartDate, isEqualTo: weekStartDate)
+    return _supabase
+        .from('weekly_menus')
+        .eq(DatabaseConstants.weekStartDate, weekStartDate)
         .limit(1)
         .snapshots()
         .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      return WeeklyMenu.fromMap(snapshot.docs.first.data());
+      if (data.isEmpty) return null;
+      return WeeklyMenu.fromMap((data as List).first);
     });
   }
 

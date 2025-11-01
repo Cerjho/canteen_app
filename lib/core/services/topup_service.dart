@@ -1,41 +1,41 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'api_client.dart';
 import '../models/topup.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../interfaces/i_topup_service.dart';
 
 /// Topup Service - handles all Topup-related Firestore operations
 class TopupService implements ITopupService {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
 
   /// Constructor with dependency injection
   /// 
   /// [firestore] - Optional FirebaseFirestore instance for testing
   TopupService({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+    SupabaseClient? supabase,
+  }) : _supabase = supabase ?? Supabase.instance.client;
 
   /// Get all top-ups
   @override
   Stream<List<Topup>> getTopups() {
-    return _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .orderBy(FirestoreConstants.requestDate, descending: true)
+    return _supabase
+        .from('topups')
+        .order(DatabaseConstants.requestDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Topup.fromMap(item)).toList());
   }
 
   /// Get top-ups by status
   Stream<List<Topup>> getTopupsByStatus(TopupStatus status) {
-    return _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.status, isEqualTo: status.name)
-        .orderBy(FirestoreConstants.requestDate, descending: true)
+    return _supabase
+        .from('topups')
+        .eq(DatabaseConstants.status, status.name)
+        .order(DatabaseConstants.requestDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Topup.fromMap(item)).toList());
   }
 
   /// Get pending top-ups
@@ -59,21 +59,21 @@ class TopupService implements ITopupService {
   /// Get top-ups by parent
   @override
   Stream<List<Topup>> getTopupsByParent(String parentId) {
-    return _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.parentId, isEqualTo: parentId)
-        .orderBy(FirestoreConstants.requestDate, descending: true)
+    return _supabase
+        .from('topups')
+        .eq(DatabaseConstants.parentId, parentId)
+        .order(DatabaseConstants.requestDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Topup.fromMap(item)).toList());
   }
 
   /// Get top-up by ID
   @override
   Future<Topup?> getTopupById(String id) async {
-    final doc = await _firestore.collection(FirestoreConstants.topupsCollection).doc(id).get();
-    if (doc.exists && doc.data() != null) {
-      return Topup.fromMap(doc.data()!);
+    final data = await _supabase.from('topups').select().eq('id', id).maybeSingle();
+    if (data != null) {
+      return Topup.fromMap(data);
     }
     return null;
   }
@@ -92,13 +92,13 @@ class TopupService implements ITopupService {
       return;
     }
 
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topup.id).set(topup.toMap());
+    await _supabase.from('topups').insert(topup.toMap());
   }
 
   /// Update top-up
   Future<void> updateTopup(Topup topup) async {
-    await _firestore
-        .collection(FirestoreConstants.topupsCollection)
+    await _supabase
+        .from('topups')
         .doc(topup.id)
         .update(topup.toMap());
   }
@@ -106,11 +106,11 @@ class TopupService implements ITopupService {
   /// Approve top-up (interface implementation)
   @override
   Future<void> approveTopup(String topupId, String approvedBy) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topupId).update({
-      FirestoreConstants.status: TopupStatus.approved.name,
+    await _supabase.from('topups').update({
+      DatabaseConstants.status: TopupStatus.approved.name,
       'processedBy': approvedBy,
-      'processedAt': Timestamp.now(),
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     });
   }
 
@@ -120,24 +120,24 @@ class TopupService implements ITopupService {
     String adminId, {
     String? adminNotes,
   }) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topupId).update({
-      FirestoreConstants.status: TopupStatus.approved.name,
+    await _supabase.from('topups').update({
+      DatabaseConstants.status: TopupStatus.approved.name,
       'processedBy': adminId,
-      'processedAt': Timestamp.now(),
+      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
       'adminNotes': adminNotes,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     });
   }
 
   /// Reject top-up (interface implementation)
   @override
   Future<void> rejectTopup(String topupId, String rejectedBy, String reason) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topupId).update({
-      FirestoreConstants.status: TopupStatus.declined.name,
+    await _supabase.from('topups').update({
+      DatabaseConstants.status: TopupStatus.declined.name,
       'processedBy': rejectedBy,
-      'processedAt': Timestamp.now(),
+      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
       'adminNotes': reason,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     });
   }
 
@@ -147,27 +147,27 @@ class TopupService implements ITopupService {
     String adminId, {
     String? adminNotes,
   }) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topupId).update({
-      FirestoreConstants.status: TopupStatus.declined.name,
+    await _supabase.from('topups').update({
+      DatabaseConstants.status: TopupStatus.declined.name,
       'processedBy': adminId,
-      'processedAt': Timestamp.now(),
+      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
       'adminNotes': adminNotes,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
     });
   }
 
   /// Complete top-up (mark as completed after balance update)
   Future<void> completeTopup(String topupId) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(topupId).update({
-      FirestoreConstants.status: TopupStatus.completed.name,
-      FirestoreConstants.updatedAt: Timestamp.now(),
+    await _supabase.from('topups').update({
+      DatabaseConstants.status: TopupStatus.completed.name,
+      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', topupId),
     });
   }
 
   /// Delete a top-up request
   @override
   Future<void> deleteTopup(String id) async {
-    await _firestore.collection(FirestoreConstants.topupsCollection).doc(id).delete();
+    await _supabase.from('topups').delete().eq('id', id);
   }
 
   /// Get today's pending top-ups count
@@ -177,52 +177,52 @@ class TopupService implements ITopupService {
     final startOfDay = DateTime(today.year, today.month, today.day);
     final endOfDay = DateTime(today.year, today.month, today.day, 23, 59, 59);
     
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.status, isEqualTo: TopupStatus.pending.name)
-        .where(FirestoreConstants.requestDate, isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-        .where(FirestoreConstants.requestDate, isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+    final snapshot = await _supabase
+        .from('topups')
+        .eq(DatabaseConstants.status, TopupStatus.pending.name)
+        .gte(DatabaseConstants.requestDate, startOfDay.toIso8601String())
+        .lte(DatabaseConstants.requestDate, endOfDay.toIso8601String())
         .count()
         .get();
     
-    return snapshot.count ?? 0;
+    return (data as List).length;
   }
 
   /// Get total pending amount
   @override
   Future<double> getTotalPendingAmount() async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.status, isEqualTo: TopupStatus.pending.name)
+    final snapshot = await _supabase
+        .from('topups')
+        .eq(DatabaseConstants.status, TopupStatus.pending.name)
         .get();
     
-    final topups = snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList();
+    final topups = data.map((item) => Topup.fromMap(item)).toList();
     return topups.fold<double>(0.0, (sum, topup) => sum + topup.amount);
   }
 
   /// Get top-ups by date range
   @override
   Stream<List<Topup>> getTopupsByDateRange(DateTime startDate, DateTime endDate) {
-    return _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.requestDate, isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where(FirestoreConstants.requestDate, isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-        .orderBy(FirestoreConstants.requestDate, descending: true)
+    return _supabase
+        .from('topups')
+        .gte(DatabaseConstants.requestDate, startDate.toIso8601String())
+        .lte(DatabaseConstants.requestDate, endDate.toIso8601String())
+        .order(DatabaseConstants.requestDate, ascending: false)
         .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList());
+        .map((data) =>
+            data.map((item) => Topup.fromMap(item)).toList());
   }
 
   /// Get top-up statistics for date range
   Future<Map<String, dynamic>> getTopupStatistics(
       DateTime start, DateTime end) async {
-    final snapshot = await _firestore
-        .collection(FirestoreConstants.topupsCollection)
-        .where(FirestoreConstants.requestDate, isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where(FirestoreConstants.requestDate, isLessThanOrEqualTo: Timestamp.fromDate(end))
+    final snapshot = await _supabase
+        .from('topups')
+        .gte(DatabaseConstants.requestDate, start.toIso8601String())
+        .lte(DatabaseConstants.requestDate, end.toIso8601String())
         .get();
 
-    final topups = snapshot.docs.map((doc) => Topup.fromMap(doc.data())).toList();
+    final topups = data.map((item) => Topup.fromMap(item)).toList();
 
     double totalAmount = 0;
     double approvedAmount = 0;
