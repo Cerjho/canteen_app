@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/storage_service.dart';
-import 'firebase_providers.dart';
+import 'supabase_providers.dart';
 
 // ============================================================================
 // STORAGE SERVICE PROVIDER
@@ -8,9 +8,9 @@ import 'firebase_providers.dart';
 
 /// Storage Service Provider
 /// 
-/// Handles file uploads to Firebase Storage (images, documents).
+/// Handles file uploads to Supabase Storage (images, documents).
 final storageServiceProvider = Provider<StorageService>((ref) {
   return StorageService(
-    storage: ref.watch(firebaseStorageProvider),
+    supabase: ref.watch(supabaseProvider),
   );
 });

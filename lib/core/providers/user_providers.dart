@@ -7,7 +7,7 @@ import '../services/parent_service.dart';
 import '../services/user_service.dart';
 import '../models/student.dart';
 import '../models/parent.dart';
-import 'firebase_providers.dart';
+import 'supabase_providers.dart';
 import 'auth_providers.dart';
 
 // ============================================================================
@@ -24,7 +24,7 @@ final uuidProvider = Provider<Uuid>((ref) => const Uuid());
 /// Handles student management operations (CRUD, balance, import/export).
 final studentServiceProvider = Provider<IStudentService>((ref) {
   return StudentService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
     uuid: ref.watch(uuidProvider),
   );
 });
@@ -34,7 +34,7 @@ final studentServiceProvider = Provider<IStudentService>((ref) {
 /// Handles parent management operations (CRUD, linking students, balance).
 final parentServiceProvider = Provider<IParentService>((ref) {
   return ParentService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
     userService: ref.watch(userServiceProvider) as UserService,
   );
 });

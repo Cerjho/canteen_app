@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_role.dart';
 
 /// Interface for Authentication Service operations
@@ -12,10 +12,10 @@ abstract class IAuthService {
   User? get currentUser;
 
   /// Sign in with email and password
-  Future<UserCredential> signInWithEmailAndPassword(String email, String password);
+  Future<AuthResponse> signInWithEmailAndPassword(String email, String password);
 
   /// Sign in with Google
-  Future<UserCredential?> signInWithGoogle();
+  Future<AuthResponse?> signInWithGoogle();
 
   /// Sign out
   Future<void> signOut();

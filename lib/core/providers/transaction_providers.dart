@@ -5,7 +5,7 @@ import '../services/order_service.dart';
 import '../services/topup_service.dart';
 import '../models/order.dart' as order_model;
 import '../models/topup.dart';
-import 'firebase_providers.dart';
+import 'supabase_providers.dart';
 import 'user_providers.dart';
 import 'date_refresh_provider.dart';
 
@@ -18,7 +18,7 @@ import 'date_refresh_provider.dart';
 /// Handles order management (CRUD, status updates, statistics).
 final orderServiceProvider = Provider<IOrderService>((ref) {
   return OrderService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
   );
 });
 
@@ -27,7 +27,7 @@ final orderServiceProvider = Provider<IOrderService>((ref) {
 /// Handles top-up request management (approval, rejection, statistics).
 final topupServiceProvider = Provider<ITopupService>((ref) {
   return TopupService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
   );
 });
 

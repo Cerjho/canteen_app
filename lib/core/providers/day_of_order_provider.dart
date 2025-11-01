@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/menu_item.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
+import 'supabase_providers.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Day-of Order Item - represents items pending approval
 class DayOfOrderItem {
@@ -50,24 +51,25 @@ class DayOfOrderItem {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'menuItemId': menuItem.id,
-      'menuItemName': menuItem.name,
-      'menuItemPrice': menuItem.price,
+      'menu_item_id': menuItem.id,
+      'menu_item_name': menuItem.name,
+      'menu_item_price': menuItem.price,
       'quantity': quantity,
-      'selectedDate': Timestamp.fromDate(selectedDate),
+      'selected_date': selectedDate.toIso8601String(),
       'status': status,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'studentId': studentId,
-      'studentName': studentName,
+      'created_at': createdAt.toIso8601String(),
+      'student_id': studentId,
+      'student_name': studentName,
     };
   }
 }
 
 /// Day-of Order State Notifier
 class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
-  DayOfOrderNotifier() : super([]);
+  DayOfOrderNotifier(this._supabase) : super([]);
 
   final _uuid = const Uuid();
+  final SupabaseClient _supabase;
 
   /// Add item to day-of order
   void addItem(MenuItem item, DateTime selectedDate, {String? studentId, String? studentName}) {
@@ -143,9 +145,6 @@ class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
   Future<void> submitForApproval(String parentId, String studentId) async {
     if (state.isEmpty) return;
 
-    final firestore = FirebaseFirestore.instance;
-    final batch = firestore.batch();
-
     // Group items by date
     final itemsByDate = <DateTime, List<DayOfOrderItem>>{};
     for (final item in state) {
@@ -158,30 +157,32 @@ class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
     }
 
     // Create day-of order requests for each date
+    final now = DateTime.now();
+    final orders = <Map<String, dynamic>>[];
+    
     for (final entry in itemsByDate.entries) {
       final date = entry.key;
       final items = entry.value;
 
       final orderId = _uuid.v4();
-      final orderRef = firestore.collection('day_of_orders').doc(orderId);
-
-      batch.set(orderRef, {
+      orders.add({
         'id': orderId,
-        'parentId': parentId,
-        'studentId': studentId,
-        'orderDate': Timestamp.fromDate(date),
+        'parent_id': parentId,
+        'student_id': studentId,
+        'order_date': date.toIso8601String(),
         'status': 'pending_approval',
         'items': items.map((item) => item.toMap()).toList(),
-        'totalAmount': items.fold<double>(
+        'total_amount': items.fold<double>(
           0,
           (sum, item) => sum + (item.menuItem.price * item.quantity),
         ),
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
       });
     }
 
-    await batch.commit();
+    // Insert all orders
+    await _supabase.from('day_of_orders').insert(orders);
 
     // Clear state after submission
     state = [];
@@ -205,7 +206,7 @@ class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
 /// Provider for day-of orders
 final dayOfOrderProvider =
     StateNotifierProvider<DayOfOrderNotifier, List<DayOfOrderItem>>(
-  (ref) => DayOfOrderNotifier(),
+  (ref) => DayOfOrderNotifier(ref.watch(supabaseProvider)),
 );
 
 /// Provider for day-of order item count

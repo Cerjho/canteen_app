@@ -8,7 +8,7 @@ import '../services/weekly_menu_analytics_service.dart';
 import '../models/menu_item.dart';
 import '../models/weekly_menu.dart';
 import '../models/weekly_menu_analytics.dart';
-import 'firebase_providers.dart';
+import 'supabase_providers.dart';
 import 'user_providers.dart';
 
 // ============================================================================
@@ -20,7 +20,7 @@ import 'user_providers.dart';
 /// Handles menu item inventory management (CRUD, availability, import/export).
 final menuServiceProvider = Provider<IMenuService>((ref) {
   return MenuService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
   );
 });
 
@@ -29,7 +29,7 @@ final menuServiceProvider = Provider<IMenuService>((ref) {
 /// Handles weekly menu scheduling (publishing menus, copying, history).
 final weeklyMenuServiceProvider = Provider<IWeeklyMenuService>((ref) {
   return WeeklyMenuService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
     uuid: ref.watch(uuidProvider),
   );
 });
@@ -39,7 +39,7 @@ final weeklyMenuServiceProvider = Provider<IWeeklyMenuService>((ref) {
 /// Handles weekly menu analytics and statistics.
 final weeklyMenuAnalyticsServiceProvider = Provider<IWeeklyMenuAnalyticsService>((ref) {
   return WeeklyMenuAnalyticsService(
-    firestore: ref.watch(firestoreProvider),
+    supabase: ref.watch(supabaseProvider),
   );
 });
 
