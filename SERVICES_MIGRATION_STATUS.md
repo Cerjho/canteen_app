@@ -1,6 +1,7 @@
 # Services Migration Status
 
 ## ✅ COMPLETED SERVICES (5/13)
+
 1. ✅ **auth_service.dart** - Fully migrated to Supabase Auth
 2. ✅ **user_service.dart** - Fully migrated to Supabase Postgres
 3. ✅ **storage_service.dart** - Fully migrated to Supabase Storage
@@ -10,6 +11,7 @@
 ## 🔄 CRITICAL SERVICES NEEDING MIGRATION (8/13)
 
 ### Large Services (500+ lines)
+
 1. ❌ **menu_service.dart** (581 lines)
    - CRUD operations for menu items
    - Import/Export functionality
@@ -26,6 +28,7 @@
    - Transaction history
 
 ### Medium Services (200-300 lines)
+
 4. ❌ **order_service.dart** (235 lines)
    - Order CRUD operations
    - Statistics and reporting
@@ -55,7 +58,9 @@
 ## 🎯 NEXT STEPS
 
 ### Phase 1: Complete Remaining Service Migrations (URGENT)
+
 The 8 services above are **blocking all compilation**. They use:
+
 - `FirebaseFirestore` → Replace with `SupabaseClient`
 - `.collection().doc()` → Replace with `.from().select().eq()`
 - `.snapshots()` → Replace with `.stream(primaryKey: ['id'])`
@@ -63,13 +68,16 @@ The 8 services above are **blocking all compilation**. They use:
 - `WriteBatch` → Replace with sequential inserts or `.insert([...])`
 
 ### Phase 2: Update UI Screens
+
 Once services are migrated, update screens that use Firestore directly:
+
 - wallet_screen.dart
 - transactions_screen.dart
 - cart_screen.dart  
 - weekly_cart_screen.dart
 
 ### Phase 3: Testing & Deployment
+
 - Run flutter analyze
 - Test all CRUD operations
 - Deploy database schema to Supabase

@@ -21,6 +21,7 @@ This document outlines all the steps needed to complete the migration from Fireb
 ```
 
 **Action:**
+
 ```powershell
 Remove-Item -Path "tools/cloudflare-worker" -Recurse -Force
 ```
@@ -34,6 +35,7 @@ Remove-Item -Path "tools/cloudflare-worker" -Recurse -Force
 ```
 
 **Action:**
+
 ```powershell
 Remove-Item -Path "tools/set_custom_claims.js" -Force
 Remove-Item -Path "tools/migrate_user_roles.js" -Force
@@ -67,6 +69,7 @@ npm uninstall firebase firebase-admin wrangler
 **In Flutter `pubspec.yaml`:**
 
 Remove:
+
 ```yaml
 dependencies:
   firebase_core: ^x.x.x
@@ -78,12 +81,14 @@ dependencies:
 ```
 
 Add:
+
 ```yaml
 dependencies:
   supabase_flutter: ^2.0.0
 ```
 
 Run:
+
 ```bash
 flutter pub get
 ```
@@ -97,6 +102,7 @@ flutter pub get
 **File:** `lib/main.dart`
 
 Replace Firebase initialization:
+
 ```dart
 // OLD - Remove this
 await Firebase.initializeApp(
@@ -105,6 +111,7 @@ await Firebase.initializeApp(
 ```
 
 With Supabase initialization:
+
 ```dart
 // NEW - Add this
 await Supabase.initialize(
@@ -116,6 +123,7 @@ await Supabase.initialize(
 ### 2. Update Authentication Calls
 
 **OLD (Firebase Auth):**
+
 ```dart
 final user = FirebaseAuth.instance.currentUser;
 await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -125,6 +133,7 @@ await FirebaseAuth.instance.signInWithEmailAndPassword(
 ```
 
 **NEW (Supabase Auth):**
+
 ```dart
 final user = Supabase.instance.client.auth.currentUser;
 await Supabase.instance.client.auth.signInWithPassword(
@@ -136,6 +145,7 @@ await Supabase.instance.client.auth.signInWithPassword(
 ### 3. Update Database Queries
 
 **OLD (Firestore):**
+
 ```dart
 final snapshot = await FirebaseFirestore.instance
   .collection('orders')
@@ -146,6 +156,7 @@ final orders = snapshot.docs.map((doc) => Order.fromJson(doc.data())).toList();
 ```
 
 **NEW (Supabase):**
+
 ```dart
 final response = await Supabase.instance.client
   .from('orders')
@@ -158,6 +169,7 @@ final orders = (response as List).map((json) => Order.fromJson(json)).toList();
 ### 4. Update Storage Calls
 
 **OLD (Firebase Storage):**
+
 ```dart
 final ref = FirebaseStorage.instance.ref('uploads/avatar.png');
 await ref.putFile(file);
@@ -165,6 +177,7 @@ final url = await ref.getDownloadURL();
 ```
 
 **NEW (Supabase Storage):**
+
 ```dart
 await Supabase.instance.client.storage
   .from('uploads')
@@ -178,6 +191,7 @@ final url = Supabase.instance.client.storage
 ### 5. Update Role Checking
 
 **OLD (Firebase Custom Claims):**
+
 ```dart
 final idTokenResult = await FirebaseAuth.instance.currentUser?.getIdTokenResult();
 final isAdmin = idTokenResult?.claims?['admin'] == true;
@@ -185,6 +199,7 @@ final isParent = idTokenResult?.claims?['parent'] == true;
 ```
 
 **NEW (Supabase User Metadata):**
+
 ```dart
 final user = Supabase.instance.client.auth.currentUser;
 final isAdmin = user?.userMetadata?['isAdmin'] == true;
@@ -197,6 +212,7 @@ await Supabase.instance.client.auth.refreshSession();
 ### 6. Update Payment Function Calls
 
 **OLD (Cloudflare Worker):**
+
 ```dart
 final response = await http.post(
   Uri.parse('https://your-worker.workers.dev/create-payment-session'),
@@ -206,6 +222,7 @@ final response = await http.post(
 ```
 
 **NEW (Supabase Edge Function):**
+
 ```dart
 final response = await Supabase.instance.client.functions.invoke(
   'paymongo_webhook/create-payment-session',
@@ -232,6 +249,7 @@ firebase firestore:export ./firestore-export
 Create migration file: `supabase/migrations/001_initial_schema.sql`
 
 Example:
+
 ```sql
 -- Users table
 create table users (
@@ -311,6 +329,7 @@ Update repository secrets:
 ## ✅ Phase 6: Testing Checklist
 
 ### Authentication
+
 - [ ] Sign up new user
 - [ ] Sign in existing user
 - [ ] Sign out
@@ -318,6 +337,7 @@ Update repository secrets:
 - [ ] Email verification
 
 ### Database
+
 - [ ] Read data (orders, menu items, etc.)
 - [ ] Write data
 - [ ] Update data
@@ -325,18 +345,21 @@ Update repository secrets:
 - [ ] Real-time subscriptions (if used)
 
 ### Storage
+
 - [ ] Upload files
 - [ ] Download files
 - [ ] Delete files
 - [ ] Get public URLs
 
 ### Payments
+
 - [ ] Create payment session (PayMongo/Stripe)
 - [ ] Handle successful payment webhook
 - [ ] Handle failed payment webhook
 - [ ] Order confirmation flow
 
 ### User Roles
+
 - [ ] Set user as admin
 - [ ] Set user as parent
 - [ ] Check role in Flutter app
@@ -479,4 +502,3 @@ Migration is complete when:
 - ✅ Zero Firebase API calls in production
 - ✅ Cloudflare Workers deleted
 - ✅ Documentation updated
-

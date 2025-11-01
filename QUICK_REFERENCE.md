@@ -3,11 +3,13 @@
 ## ⚡ Quick Commands
 
 ### Deploy Everything
+
 ```powershell
 .\deploy_supabase_functions.ps1
 ```
 
 ### Manual Deployment
+
 ```powershell
 # Deploy all functions
 supabase functions deploy
@@ -17,6 +19,7 @@ supabase functions deploy order_confirmation
 ```
 
 ### View Logs
+
 ```powershell
 # Specific function
 supabase functions logs order_confirmation --follow
@@ -26,6 +29,7 @@ supabase functions logs --follow
 ```
 
 ### Set Secrets
+
 ```powershell
 supabase secrets set PAYMONGO_SECRET=sk_test_xxx
 supabase secrets set STRIPE_SECRET=sk_test_xxx
@@ -80,6 +84,7 @@ curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/set_user_role `
 ## 📱 Flutter Integration
 
 ### Initialize Supabase
+
 ```dart
 await Supabase.initialize(
   url: 'https://YOUR_PROJECT.supabase.co',
@@ -88,6 +93,7 @@ await Supabase.initialize(
 ```
 
 ### Call Function
+
 ```dart
 final response = await Supabase.instance.client.functions.invoke(
   'paymongo_webhook/create-payment-session',
@@ -96,6 +102,7 @@ final response = await Supabase.instance.client.functions.invoke(
 ```
 
 ### Check User Role
+
 ```dart
 final user = Supabase.instance.client.auth.currentUser;
 final isAdmin = user?.userMetadata?['isAdmin'] ?? false;
@@ -146,6 +153,7 @@ supabase/
 ## 🆘 Troubleshooting
 
 ### Function won't deploy
+
 ```powershell
 # Check if logged in
 supabase login
@@ -155,6 +163,7 @@ supabase projects list
 ```
 
 ### Can't see logs
+
 ```powershell
 # Ensure function is deployed
 supabase functions list
@@ -164,6 +173,7 @@ supabase functions logs function-name --follow
 ```
 
 ### Webhook signature fails
+
 - Verify webhook secret is correct
 - Check webhook URL in provider dashboard
 - Ensure using signing secret (not API key)
