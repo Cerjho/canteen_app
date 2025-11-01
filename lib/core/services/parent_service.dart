@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/parent.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_parent_service.dart';
 import 'user_service.dart';
 
@@ -49,8 +48,8 @@ class ParentService implements IParentService {
   Stream<List<Parent>> getParents() {
     return _supabase
         .from('parents')
-        .order(DatabaseConstants.createdAt, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => Parent.fromMap(item)).toList());
   }
@@ -76,11 +75,11 @@ class ParentService implements IParentService {
   Stream<Parent?> getParentStream(String userId) {
     return _supabase
         .from('parents')
-        .doc(userId)
-        .snapshots()
-        .map((doc) {
-      if (data != null) {
-        return Parent.fromMap(data);
+        .stream(primaryKey: ['id'])
+        .eq('id', userId)
+        .map((data) {
+      if (data.isNotEmpty) {
+        return Parent.fromMap(data.first);
       }
       return null;
     });
@@ -142,8 +141,8 @@ class ParentService implements IParentService {
     final updatedParent = parent.copyWith(updatedAt: DateTime.now());
     await _supabase
         .from('parents')
-        .doc(parent.userId)
-        .update(updatedParent.toMap());
+        .update(updatedParent.toMap())
+        .eq('id', parent.userId);
   }
 
   /// Update parent contact information
@@ -155,7 +154,7 @@ class ParentService implements IParentService {
     String? phone,
   }) async {
     final updates = <String, dynamic>{
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     };
 
     if (address != null) updates['address'] = address;
@@ -182,9 +181,9 @@ class ParentService implements IParentService {
   @override
   Future<void> updateBalance(String userId, double newBalance) async {
     await _supabase.from('parents').update({
-      DatabaseConstants.balance: newBalance,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
-    });
+      'balance': newBalance,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', userId);
   }
 
   /// Add to parent balance
@@ -235,8 +234,8 @@ class ParentService implements IParentService {
       final updatedChildren = [...parent.children, studentId];
       await _supabase.from('parents').update({
         'children': updatedChildren,
-        DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
-      });
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', userId);
     }
   }
 
@@ -251,18 +250,17 @@ class ParentService implements IParentService {
       final updatedChildren = parent.children.where((id) => id != studentId).toList();
       await _supabase.from('parents').update({
         'children': updatedChildren,
-        DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', userId),
-      });
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', userId);
     }
   }
 
-  /// Record a parent transaction inside an existing Firestore transaction
+  /// Record a parent transaction
   ///
   /// This helper writes a document to `parent_transactions` collection containing
-  /// details of the balance adjustment. It must be invoked inside a Firestore
-  /// transaction so it can be atomically committed alongside other updates.
-  Future<void> recordTransactionInTx({
-    required Transaction tx,
+  /// details of the balance adjustment. Note: Supabase doesn't support transactions
+  /// like Firestore, so this is a separate insert operation.
+  Future<void> recordTransaction({
     required String parentId,
     required double amount,
     required double balanceBefore,
@@ -270,19 +268,17 @@ class ParentService implements IParentService {
     required List<String> orderIds,
     required String reason,
   }) async {
-    final transactionsRef = _supabase.from('parent_transactions');
-    final txDoc = transactionsRef.doc();
     final payload = {
-      'parentId': parentId,
+      'parent_id': parentId,
       'amount': amount,
-      'balanceBefore': balanceBefore,
-      'balanceAfter': balanceAfter,
-      'orderIds': orderIds,
+      'balance_before': balanceBefore,
+      'balance_after': balanceAfter,
+      'order_ids': orderIds,
       'reason': reason,
-      DatabaseConstants.createdAt: DateTime.now().toIso8601String(),
+      'created_at': DateTime.now().toIso8601String(),
     };
 
-    tx.set(txDoc, payload);
+    await _supabase.from('parent_transactions').insert(payload);
   }
 
   /// Link student to parent (interface implementation)
@@ -305,11 +301,11 @@ class ParentService implements IParentService {
   Stream<List<Parent>> searchParents(String query) {
     return _supabase
         .from('parents')
-        .snapshots()
-        .map((snapshot) {
+        .stream(primaryKey: ['id'])
+        .map((data) {
       final lowercaseQuery = query.toLowerCase();
       return data
-          .map((doc) => Parent.fromMap(item))
+          .map((item) => Parent.fromMap(item))
           .where((parent) =>
               (parent.phone?.toLowerCase().contains(lowercaseQuery) ?? false) ||
               (parent.address?.toLowerCase().contains(lowercaseQuery) ?? false))
@@ -327,10 +323,10 @@ class ParentService implements IParentService {
     final results = <Map<String, dynamic>>[];
 
     // Get all parents
-    final parentsSnapshot = await _supabase.from('parents').get();
+    final parentsData = await _supabase.from('parents').select();
     
-    for (final parentDoc in parentsdata) {
-      final parent = Parent.fromMap(parentdata);
+    for (final parentItem in (parentsData as List)) {
+      final parent = Parent.fromMap(parentItem);
       
       // Check if phone or address matches
       final phoneMatch = parent.phone?.toLowerCase().contains(lowercaseQuery) ?? false;
@@ -366,7 +362,7 @@ class ParentService implements IParentService {
 
   /// Get parents count
   Future<int> getParentsCount() async {
-    final snapshot = await _supabase.from('parents').select('id');
+    final data = await _supabase.from('parents').select('id');
     return (data as List).length;
   }
 
@@ -374,13 +370,13 @@ class ParentService implements IParentService {
   /// 
   /// Returns parents whose balance is below the specified threshold.
   Future<List<Parent>> getParentsWithLowBalance(double threshold) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('parents')
-        .lt(DatabaseConstants.balance, threshold)
-        .get();
+        .select()
+        .lt('balance', threshold);
 
-    return data
-        .map((doc) => Parent.fromMap(item))
+    return (data as List)
+        .map((item) => Parent.fromMap(item))
         .toList();
   }
 
@@ -388,13 +384,14 @@ class ParentService implements IParentService {
   /// 
   /// Returns all parents who have the specified student in their children array.
   Future<List<Parent>> getParentsByStudent(String studentId) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('parents')
-        .contains('children', [studentId])
-        .get();
+        .select();
 
-    return data
-        .map((doc) => Parent.fromMap(item))
+    // Filter client-side since Supabase doesn't have a contains operator for arrays
+    return (data as List)
+        .map((item) => Parent.fromMap(item))
+        .where((parent) => parent.children.contains(studentId))
         .toList();
   }
 
