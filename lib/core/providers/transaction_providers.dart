@@ -3,8 +3,10 @@ import '../interfaces/i_order_service.dart';
 import '../interfaces/i_topup_service.dart';
 import '../services/order_service.dart';
 import '../services/topup_service.dart';
+import '../services/parent_service.dart';
 import '../models/order.dart' as order_model;
 import '../models/topup.dart';
+import '../models/parent_transaction.dart';
 import 'supabase_providers.dart';
 import 'user_providers.dart';
 import 'date_refresh_provider.dart';
@@ -238,4 +240,24 @@ final topupByIdProvider = StreamProvider.family<Topup?, String>((ref, topupId) a
 /// Returns: Stream<List<Topup>>
 final parentTopupsProviderFamily = StreamProvider.family<List<Topup>, String>((ref, parentId) {
   return ref.watch(topupServiceProvider).getTopupsByParent(parentId);
+});
+
+// ============================================================================
+// PARENT TRANSACTION PROVIDERS
+// ============================================================================
+
+/// Parent Service Provider (for transactions)
+final parentServiceForTransactionsProvider = Provider<ParentService>((ref) {
+  return ParentService(
+    supabase: ref.watch(supabaseProvider),
+  );
+});
+
+/// Parent Transactions Stream Provider Family
+/// 
+/// Streams all transactions for a specific parent, ordered by created_at descending.
+/// Usage: ref.watch(parentTransactionsStreamProvider(parentId))
+/// Returns: Stream<List<ParentTransaction>>
+final parentTransactionsStreamProvider = StreamProvider.family<List<ParentTransaction>, String>((ref, parentId) {
+  return ref.watch(parentServiceForTransactionsProvider).getParentTransactionsStream(parentId);
 });

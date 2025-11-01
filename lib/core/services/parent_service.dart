@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/parent.dart';
+import '../models/parent_transaction.dart';
 import '../interfaces/i_parent_service.dart';
 import 'user_service.dart';
 
@@ -279,6 +280,18 @@ class ParentService implements IParentService {
     };
 
     await _supabase.from('parent_transactions').insert(payload);
+  }
+
+  /// Get parent transactions stream
+  ///
+  /// Returns a stream of all transactions for a specific parent, ordered by created_at descending.
+  Stream<List<ParentTransaction>> getParentTransactionsStream(String parentId) {
+    return _supabase
+        .from('parent_transactions')
+        .stream(primaryKey: ['id'])
+        .eq('parent_id', parentId)
+        .order('created_at', ascending: false)
+        .map((data) => data.map((json) => ParentTransaction.fromMap(json)).toList());
   }
 
   /// Link student to parent (interface implementation)

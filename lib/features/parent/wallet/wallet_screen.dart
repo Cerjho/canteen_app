@@ -5,8 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/providers/user_providers.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../core/constants/firestore_constants.dart';
+import '../../../core/providers/transaction_providers.dart';
 import 'transactions_screen.dart';
 import '../../../core/providers/date_refresh_provider.dart';
 
@@ -244,41 +243,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             // Stream parent_transactions for this parent, ordered by createdAt desc
             SizedBox(
               // limit the height to allow pull-to-refresh to work naturally inside scroll
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('parent_transactions')
-                    .where(FirestoreConstants.parentId, isEqualTo: parentId)
-                    .orderBy(FirestoreConstants.createdAt, descending: true)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Error loading transactions', style: Theme.of(context).textTheme.titleMedium),
-                          SizedBox(height: 8.h),
-                          Text(snapshot.error.toString(), style: TextStyle(color: Colors.redAccent)),
-                          SizedBox(height: 12.h),
-                          ElevatedButton.icon(
-                            onPressed: () => setState(() {}),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final docs = snapshot.data?.docs ?? [];
-                  final filteredDocs = docs.toList();
-
+              child: ref.watch(parentTransactionsStreamProvider(parentId)).when(
+                data: (transactions) {
                   // Friendly empty state
-                  if (filteredDocs.isEmpty) {
+                  if (transactions.isEmpty) {
                     return Padding(
                       padding: EdgeInsets.symmetric(vertical: 24.h, horizontal: 16.w),
                       child: Column(
@@ -303,6 +271,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     );
                   }
 
+                  // Show top 5 transactions
+                  final limitedTransactions = transactions.take(5).toList();
+
                   // Animated switcher for smoother transitions
                   return RefreshIndicator(
                     onRefresh: () async {
@@ -313,23 +284,22 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
                       child: ListView.builder(
-                        key: ValueKey(filteredDocs.length),
+                        key: ValueKey(limitedTransactions.length),
                         shrinkWrap: true,
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: EdgeInsets.symmetric(horizontal: 16.w),
-                        itemCount: filteredDocs.length,
+                        itemCount: limitedTransactions.length,
                         itemBuilder: (context, index) {
-                          final txDoc = filteredDocs[index];
-                          final tx = txDoc.data();
-                          final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+                          final tx = limitedTransactions[index];
+                          final amount = tx.amount;
                           final isTopup = amount > 0;
-                          final createdAt = tx[FirestoreConstants.createdAt];
-                          final date = createdAt is Timestamp ? createdAt.toDate() : ref.read(dateRefreshProvider);
-                          final reason = tx['reason']?.toString() ?? '';
-                          final orderIdsList = (tx['orderIds'] as List?) ?? [];
-                          final orderIds = orderIdsList.join(', ');
+                          final date = tx.createdAt;
+                          final reason = tx.reason;
+                          final orderIds = tx.orderIds.join(', ');
                           String description = reason;
-                          final isDeferred = reason.toLowerCase().contains('deferred') || (tx['balanceBefore'] != null && tx['balanceAfter'] != null && tx['balanceBefore'] == tx['balanceAfter'] && reason.toLowerCase().contains('weekly'));
+                          final isDeferred = reason.toLowerCase().contains('deferred') || 
+                              (tx.balanceBefore != null && tx.balanceAfter != null && 
+                               tx.balanceBefore == tx.balanceAfter && reason.toLowerCase().contains('weekly'));
                           if (reason == 'weekly_order' && orderIds.isNotEmpty) {
                             description = 'Weekly Order ($orderIds)';
                           } else if (reason == 'weekly_order_deferred' || isDeferred) {
@@ -366,9 +336,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                                                   SizedBox(height: 6.h),
                                                   Text(orderIds),
                                                 ],
-                                                if (tx['reason'] != null) ...[
+                                                if (tx.reason.isNotEmpty) ...[
                                                   SizedBox(height: 8.h),
-                                                  Text('Note: ${tx['reason']}'),
+                                                  Text('Note: ${tx.reason}'),
                                                 ],
                                               ],
                                             ),
@@ -434,6 +404,24 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     ),
                   );
                 },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, stack) => Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Error loading transactions', style: Theme.of(context).textTheme.titleMedium),
+                      SizedBox(height: 8.h),
+                      Text(error.toString(), style: TextStyle(color: Colors.redAccent)),
+                      SizedBox(height: 12.h),
+                      ElevatedButton.icon(
+                        onPressed: () => setState(() {}),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],

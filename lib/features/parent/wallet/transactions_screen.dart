@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/providers/user_providers.dart';
-import '../../../core/constants/firestore_constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/date_refresh_provider.dart';
+import '../../../core/providers/transaction_providers.dart';
 
 /// Simple full-screen transactions list for the parent user
 enum TransactionFilter { all, pending, topups, deductions }
@@ -71,24 +70,16 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
               ),
             ],
           ),
-          body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('parent_transactions')
-                .where(FirestoreConstants.parentId, isEqualTo: parentId)
-                .orderBy(FirestoreConstants.createdAt, descending: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-              if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
-
-              final docs = snapshot.data?.docs ?? [];
+          body: ref.watch(parentTransactionsStreamProvider(parentId)).when(
+            data: (transactions) {
               // apply client-side filtering based on _filter
-              final filtered = docs.where((doc) {
-                final tx = doc.data();
-                final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+              final filtered = transactions.where((tx) {
+                final amount = tx.amount;
                 final isTopup = amount > 0;
-                final reason = tx['reason']?.toString() ?? '';
-                final isDeferred = reason.toLowerCase().contains('deferred') || (tx['balanceBefore'] != null && tx['balanceAfter'] != null && tx['balanceBefore'] == tx['balanceAfter'] && reason.toLowerCase().contains('weekly'));
+                final reason = tx.reason;
+                final isDeferred = reason.toLowerCase().contains('deferred') || 
+                    (tx.balanceBefore != null && tx.balanceAfter != null && 
+                     tx.balanceBefore == tx.balanceAfter && reason.toLowerCase().contains('weekly'));
                 switch (_filter) {
                   case TransactionFilter.all:
                     return true;
@@ -100,8 +91,8 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                     return !isTopup && !isDeferred;
                 }
               }).toList();
-              final docsToShow = filtered;
-              if (docsToShow.isEmpty) {
+              
+              if (filtered.isEmpty) {
                 return Padding(
                   padding: EdgeInsets.all(16.w),
                   child: Column(
@@ -119,19 +110,19 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
               return ListView.builder(
                 padding: EdgeInsets.symmetric(vertical: 8.h, horizontal: 12.w),
-                itemCount: docsToShow.length,
+                itemCount: filtered.length,
                 itemBuilder: (context, index) {
-                  final tx = docsToShow[index].data();
-                  final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+                  final tx = filtered[index];
+                  final amount = tx.amount;
                   final isTopup = amount > 0;
-                  final createdAt = tx[FirestoreConstants.createdAt];
-                  final date = createdAt is Timestamp ? createdAt.toDate() : ref.read(dateRefreshProvider);
-                  final reason = tx['reason']?.toString() ?? '';
-                  final orderIdsList = (tx['orderIds'] as List?) ?? [];
-                  final orderIds = orderIdsList.join(', ');
+                  final date = tx.createdAt;
+                  final reason = tx.reason;
+                  final orderIds = tx.orderIds.join(', ');
 
                   String description = reason;
-                  final isDeferred = reason.toLowerCase().contains('deferred') || (tx['balanceBefore'] != null && tx['balanceAfter'] != null && tx['balanceBefore'] == tx['balanceAfter'] && reason.toLowerCase().contains('weekly'));
+                  final isDeferred = reason.toLowerCase().contains('deferred') || 
+                      (tx.balanceBefore != null && tx.balanceAfter != null && 
+                       tx.balanceBefore == tx.balanceAfter && reason.toLowerCase().contains('weekly'));
                   if (reason == 'weekly_order' && orderIds.isNotEmpty) {
                     description = 'Weekly Order ($orderIds)';
                   } else if (reason == 'weekly_order_deferred' || isDeferred) {
@@ -166,9 +157,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                                     SizedBox(height: 6.h),
                                     Text(orderIds),
                                   ],
-                                  if (tx['reason'] != null) ...[
+                                  if (tx.reason.isNotEmpty) ...[
                                     SizedBox(height: 8.h),
-                                    Text('Note: ${tx['reason']}'),
+                                    Text('Note: ${tx.reason}'),
                                   ],
                                 ],
                               ),
@@ -220,11 +211,17 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 },
               );
             },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, st) => Center(child: Text('Error loading transactions: $e')),
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, st) => Center(child: Text('Error loading transactions')),
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, st) => Scaffold(
+        body: Center(child: Text('Error loading transactions')),
+      ),
     );
   }
 }
