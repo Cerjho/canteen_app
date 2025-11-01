@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/order.dart' as app_models;
-import '../constants/database_constants.dart';
 import '../interfaces/i_order_service.dart';
 
 /// Order Service - handles all Order-related Firestore operations
@@ -19,8 +18,8 @@ class OrderService implements IOrderService {
   Stream<List<app_models.Order>> getOrders() {
     return _supabase
         .from('orders')
-        .order(DatabaseConstants.orderDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('order_date', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -30,9 +29,9 @@ class OrderService implements IOrderService {
   Stream<List<app_models.Order>> getOrdersByStatus(String status) {
     return _supabase
         .from('orders')
-        .eq(DatabaseConstants.status, status)
-        .order(DatabaseConstants.orderDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('status', status)
+        .order('order_date', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -47,9 +46,9 @@ class OrderService implements IOrderService {
   Stream<List<app_models.Order>> getOrdersByStudent(String studentId) {
     return _supabase
         .from('orders')
-        .eq(DatabaseConstants.studentId, studentId)
-        .order(DatabaseConstants.orderDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('student_id', studentId)
+        .order('order_date', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -59,12 +58,13 @@ class OrderService implements IOrderService {
   Stream<List<app_models.Order>> getOrdersByDateRange(DateTime start, DateTime end) {
     return _supabase
         .from('orders')
-        .gte(DatabaseConstants.orderDate, start.toIso8601String())
-        .lte(DatabaseConstants.orderDate, end.toIso8601String())
-        .order(DatabaseConstants.orderDate, ascending: false)
-        .snapshots()
-        .map((data) =>
-            data.map((item) => app_models.Order.fromMap(item)).toList());
+        .stream(primaryKey: ['id'])
+        .gte('order_date', start.toIso8601String())
+        .order('order_date', ascending: false)
+        .map((data) => data
+            .map((item) => app_models.Order.fromMap(item))
+            .where((order) => order.orderDate.isBefore(end) || order.orderDate.isAtSameMomentAs(end))
+            .toList());
   }
 
   /// Get today's orders
@@ -96,16 +96,16 @@ class OrderService implements IOrderService {
   Future<void> updateOrder(app_models.Order order) async {
     await _supabase
         .from('orders')
-        .doc(order.id)
-        .update(order.toMap());
+        .update(order.toMap())
+        .eq('id', order.id);
   }
 
   /// Update order status (interface implementation - accepts String)
   @override
   Future<void> updateOrderStatus(String orderId, String status) async {
     final Map<String, dynamic> updateData = {
-      DatabaseConstants.status: status,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
+      'status': status,
+      'updated_at': DateTime.now().toIso8601String(),
     };
     await _supabase.from('orders').update(updateData).eq('id', orderId);
   }
@@ -149,12 +149,11 @@ class OrderService implements IOrderService {
   Future<int> getOrdersCountByDate(DateTime date) async {
     final startOfDay = DateTime(date.year, date.month, date.day);
     final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('orders')
-        .gte(DatabaseConstants.orderDate, startOfDay.toIso8601String())
-        .lte(DatabaseConstants.orderDate, endOfDay.toIso8601String())
-        .count()
-        .get();
+        .select('id')
+        .gte('order_date', startOfDay.toIso8601String())
+        .lte('order_date', endOfDay.toIso8601String());
     return (data as List).length;
   }
 
@@ -185,12 +184,12 @@ class OrderService implements IOrderService {
   /// Update order status (legacy method - accepts enum)
   Future<void> updateOrderStatusLegacy(String orderId, app_models.OrderStatus status) async {
     final Map<String, dynamic> updateData = {
-      DatabaseConstants.status: status.name,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
+      'status': status.name,
+      'updated_at': DateTime.now().toIso8601String(),
     };
 
     if (status == app_models.OrderStatus.completed) {
-      updateData['completedAt'] = DateTime.now().toIso8601String();
+      updateData['completed_at'] = DateTime.now().toIso8601String();
     }
 
     await _supabase.from('orders').update(updateData).eq('id', orderId);
@@ -199,13 +198,13 @@ class OrderService implements IOrderService {
   /// Get order statistics for date range
   Future<Map<String, dynamic>> getOrderStatistics(
       DateTime start, DateTime end) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('orders')
-        .gte(DatabaseConstants.orderDate, start.toIso8601String())
-        .lte(DatabaseConstants.orderDate, end.toIso8601String())
-        .get();
+        .select()
+        .gte('order_date', start.toIso8601String())
+        .lte('order_date', end.toIso8601String());
 
-    final orders = data.map((item) => app_models.Order.fromMap(item)).toList();
+    final orders = (data as List).map((item) => app_models.Order.fromMap(item)).toList();
 
     double totalRevenue = 0;
     int totalOrders = orders.length;

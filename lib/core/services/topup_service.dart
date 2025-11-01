@@ -1,8 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'api_client.dart';
 import '../models/topup.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_topup_service.dart';
 
 /// Topup Service - handles all Topup-related Firestore operations
@@ -21,8 +19,8 @@ class TopupService implements ITopupService {
   Stream<List<Topup>> getTopups() {
     return _supabase
         .from('topups')
-        .order(DatabaseConstants.requestDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('request_date', ascending: false)
         .map((data) =>
             data.map((item) => Topup.fromMap(item)).toList());
   }
@@ -31,9 +29,9 @@ class TopupService implements ITopupService {
   Stream<List<Topup>> getTopupsByStatus(TopupStatus status) {
     return _supabase
         .from('topups')
-        .eq(DatabaseConstants.status, status.name)
-        .order(DatabaseConstants.requestDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('status', status.name)
+        .order('request_date', ascending: false)
         .map((data) =>
             data.map((item) => Topup.fromMap(item)).toList());
   }
@@ -61,9 +59,9 @@ class TopupService implements ITopupService {
   Stream<List<Topup>> getTopupsByParent(String parentId) {
     return _supabase
         .from('topups')
-        .eq(DatabaseConstants.parentId, parentId)
-        .order(DatabaseConstants.requestDate, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('parent_id', parentId)
+        .order('request_date', ascending: false)
         .map((data) =>
             data.map((item) => Topup.fromMap(item)).toList());
   }
@@ -81,10 +79,11 @@ class TopupService implements ITopupService {
   /// Create a new top-up request
   @override
   Future<void> createTopup(Topup topup) async {
-    // If a backend API is configured, call it; otherwise write directly to Firestore
+    // If a backend API is configured, call it; otherwise write directly to Supabase
     if (apiClient.enabled) {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-      if (token == null) throw Exception('User not authenticated');
+      final session = _supabase.auth.currentSession;
+      if (session == null) throw Exception('User not authenticated');
+      final token = session.accessToken;
       final res = await apiClient.post('/parent/topup', headers: {'Authorization': 'Bearer $token'}, body: topup.toMap());
       if (res.statusCode != 201 && res.statusCode != 200) {
         throw Exception('Failed to create topup: ${res.statusCode} ${res.body}');
@@ -99,19 +98,19 @@ class TopupService implements ITopupService {
   Future<void> updateTopup(Topup topup) async {
     await _supabase
         .from('topups')
-        .doc(topup.id)
-        .update(topup.toMap());
+        .update(topup.toMap())
+        .eq('id', topup.id);
   }
 
   /// Approve top-up (interface implementation)
   @override
   Future<void> approveTopup(String topupId, String approvedBy) async {
     await _supabase.from('topups').update({
-      DatabaseConstants.status: TopupStatus.approved.name,
-      'processedBy': approvedBy,
-      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-    });
+      'status': TopupStatus.approved.name,
+      'processed_by': approvedBy,
+      'processed_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', topupId);
   }
 
   /// Approve top-up with notes (extended version)
@@ -121,24 +120,24 @@ class TopupService implements ITopupService {
     String? adminNotes,
   }) async {
     await _supabase.from('topups').update({
-      DatabaseConstants.status: TopupStatus.approved.name,
-      'processedBy': adminId,
-      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
-      'adminNotes': adminNotes,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-    });
+      'status': TopupStatus.approved.name,
+      'processed_by': adminId,
+      'processed_at': DateTime.now().toIso8601String(),
+      'admin_notes': adminNotes,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', topupId);
   }
 
   /// Reject top-up (interface implementation)
   @override
   Future<void> rejectTopup(String topupId, String rejectedBy, String reason) async {
     await _supabase.from('topups').update({
-      DatabaseConstants.status: TopupStatus.declined.name,
-      'processedBy': rejectedBy,
-      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
-      'adminNotes': reason,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-    });
+      'status': TopupStatus.declined.name,
+      'processed_by': rejectedBy,
+      'processed_at': DateTime.now().toIso8601String(),
+      'admin_notes': reason,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', topupId);
   }
 
   /// Decline top-up (legacy method)
@@ -148,20 +147,20 @@ class TopupService implements ITopupService {
     String? adminNotes,
   }) async {
     await _supabase.from('topups').update({
-      DatabaseConstants.status: TopupStatus.declined.name,
-      'processedBy': adminId,
-      'processedAt': DateTime.now().toIso8601String().eq('id', topupId),
-      'adminNotes': adminNotes,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-    });
+      'status': TopupStatus.declined.name,
+      'processed_by': adminId,
+      'processed_at': DateTime.now().toIso8601String(),
+      'admin_notes': adminNotes,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', topupId);
   }
 
   /// Complete top-up (mark as completed after balance update)
   Future<void> completeTopup(String topupId) async {
     await _supabase.from('topups').update({
-      DatabaseConstants.status: TopupStatus.completed.name,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', topupId),
-    });
+      'status': TopupStatus.completed.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', topupId);
   }
 
   /// Delete a top-up request
@@ -177,13 +176,12 @@ class TopupService implements ITopupService {
     final startOfDay = DateTime(today.year, today.month, today.day);
     final endOfDay = DateTime(today.year, today.month, today.day, 23, 59, 59);
     
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('topups')
-        .eq(DatabaseConstants.status, TopupStatus.pending.name)
-        .gte(DatabaseConstants.requestDate, startOfDay.toIso8601String())
-        .lte(DatabaseConstants.requestDate, endOfDay.toIso8601String())
-        .count()
-        .get();
+        .select('id')
+        .eq('status', TopupStatus.pending.name)
+        .gte('request_date', startOfDay.toIso8601String())
+        .lte('request_date', endOfDay.toIso8601String());
     
     return (data as List).length;
   }
@@ -191,12 +189,12 @@ class TopupService implements ITopupService {
   /// Get total pending amount
   @override
   Future<double> getTotalPendingAmount() async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('topups')
-        .eq(DatabaseConstants.status, TopupStatus.pending.name)
-        .get();
+        .select()
+        .eq('status', TopupStatus.pending.name);
     
-    final topups = data.map((item) => Topup.fromMap(item)).toList();
+    final topups = (data as List).map((item) => Topup.fromMap(item)).toList();
     return topups.fold<double>(0.0, (sum, topup) => sum + topup.amount);
   }
 
@@ -205,24 +203,25 @@ class TopupService implements ITopupService {
   Stream<List<Topup>> getTopupsByDateRange(DateTime startDate, DateTime endDate) {
     return _supabase
         .from('topups')
-        .gte(DatabaseConstants.requestDate, startDate.toIso8601String())
-        .lte(DatabaseConstants.requestDate, endDate.toIso8601String())
-        .order(DatabaseConstants.requestDate, ascending: false)
-        .snapshots()
-        .map((data) =>
-            data.map((item) => Topup.fromMap(item)).toList());
+        .stream(primaryKey: ['id'])
+        .gte('request_date', startDate.toIso8601String())
+        .order('request_date', ascending: false)
+        .map((data) => data
+            .map((item) => Topup.fromMap(item))
+            .where((topup) => topup.requestDate.isBefore(endDate) || topup.requestDate.isAtSameMomentAs(endDate))
+            .toList());
   }
 
   /// Get top-up statistics for date range
   Future<Map<String, dynamic>> getTopupStatistics(
       DateTime start, DateTime end) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('topups')
-        .gte(DatabaseConstants.requestDate, start.toIso8601String())
-        .lte(DatabaseConstants.requestDate, end.toIso8601String())
-        .get();
+        .select()
+        .gte('request_date', start.toIso8601String())
+        .lte('request_date', end.toIso8601String());
 
-    final topups = data.map((item) => Topup.fromMap(item)).toList();
+    final topups = (data as List).map((item) => Topup.fromMap(item)).toList();
 
     double totalAmount = 0;
     double approvedAmount = 0;
