@@ -51,4 +51,17 @@ abstract class IParentService {
 
   /// Export parents to Excel
   Future<List<int>> exportToExcel();
+
+  /// Record a parent transaction
+  Future<void> recordTransaction({
+    required String parentId,
+    required double amount,
+    required double balanceBefore,
+    required double balanceAfter,
+    required List<String> orderIds,
+    required String reason,
+  });
+
+  /// Get parent transactions stream
+  Stream<List> getParentTransactionsStream(String parentId);
 }

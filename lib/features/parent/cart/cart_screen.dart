@@ -9,10 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/models/cart_item.dart';
 import '../../../core/models/order.dart';
 import '../../../core/models/student.dart';
-import '../../../core/providers/cart_provider.dart';
 import '../../../core/providers/app_providers.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' as fb;
-import '../../../core/constants/firestore_constants.dart';
 import '../../../core/utils/format_utils.dart';
 import 'package:canteen_app/features/parent/cart/widgets/student_selection_dialog.dart';
 import '../../../core/exceptions/app_exceptions.dart';
@@ -604,41 +601,38 @@ class CartScreen extends ConsumerWidget {
         createdAt: DateTime.now(),
       );
       
-      // Place order and deduct parent balance atomically with a Firestore transaction
-      final firestore = ref.read(firestoreProvider);
-      final parentService = ref.read(parentServiceProvider) as dynamic;
-      final createdOrderId = order.id;
-
-  await firestore.runTransaction((tx) async {
-        // Create order
-        final orderRef = firestore.collection(FirestoreConstants.ordersCollection).doc(createdOrderId);
-        tx.set(orderRef, order.toMap());
-
-        // Read parent doc and ensure balance
-        final parentRef = firestore.collection(FirestoreConstants.parentsCollection).doc(currentUserId);
-        final parentSnap = await tx.get(parentRef);
-        final currentParentBalance = (parentSnap.data()?[FirestoreConstants.balance] as num?)?.toDouble() ?? 0.0;
-        if (currentParentBalance < total) {
-          throw Exception('Insufficient parent wallet balance');
+      // Place order and deduct parent balance using services
+      final orderService = ref.read(orderServiceProvider);
+      final parentService = ref.read(parentServiceProvider);
+      final currentUserId = ref.read(currentUserProvider).value!.uid;
+      
+      try {
+        // Get current parent balance
+        final parent = await parentService.getParentById(currentUserId);
+        final currentBalance = parent?.balance ?? 0.0;
+        
+        if (currentBalance < total) {
+          throw Exception('Insufficient wallet balance');
         }
-
-        final newParentBalance = currentParentBalance - total;
-        tx.update(parentRef, {
-          FirestoreConstants.balance: newParentBalance,
-          FirestoreConstants.updatedAt: fb.Timestamp.now(),
-        });
-
-        // Record transaction audit
-        await parentService.recordTransactionInTx(
-          tx: tx,
+        
+        // Create order
+        await orderService.createOrder(order);
+        
+        // Deduct balance and record transaction
+        final newBalance = currentBalance - total;
+        await parentService.updateBalance(currentUserId, newBalance);
+        await parentService.recordTransaction(
           parentId: currentUserId,
-          amount: total,
-          balanceBefore: currentParentBalance,
-          balanceAfter: newParentBalance,
-          orderIds: [createdOrderId],
+          amount: -total,
+          balanceBefore: currentBalance,
+          balanceAfter: newBalance,
+          orderIds: [order.id],
           reason: 'single_order',
         );
-      });
+      } catch (e) {
+        // If any step fails, the order won't be created or balance won't be deducted
+        rethrow;
+      }
 
       // Clear cart
       ref.read(cartProvider.notifier).clear();

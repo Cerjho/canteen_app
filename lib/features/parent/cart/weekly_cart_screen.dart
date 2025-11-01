@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -5,9 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/providers/weekly_cart_provider.dart';
 import 'package:canteen_app/core/utils/format_utils.dart';
 import 'package:canteen_app/core/providers/app_providers.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
-import '../../../core/providers/date_refresh_provider.dart';
 
 /// WeeklyCartScreen - Full-week order management screen
 /// 
@@ -429,7 +429,6 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
     );
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
       final createdOrderIds = <String>[];
       final allItems = ref.read(weeklyCartProvider).values.expand((x) => x).toList();
       final itemsByCategory = <String, List<Map<String, dynamic>>>{};
@@ -452,36 +451,43 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
         items.sort((a, b) => (a['menuItemName'] as String).compareTo(b['menuItemName'] as String));
         sortedItemsByCategory[category] = items;
       }
-      final orderRef = FirebaseFirestore.instance.collection('orders').doc();
-      final payload = {
-        'id': orderRef.id,
-        'parentId': currentUserId,
-        'itemsByCategory': sortedItemsByCategory,
-        'totalAmount': summary.totalCost,
+      
+      // Use Supabase to insert order
+      final parentService = ref.read(parentServiceProvider);
+      
+      // Generate order ID
+      final orderId = DateTime.now().millisecondsSinceEpoch.toString();
+      
+      final orderData = {
+        'id': orderId,
+        'parent_id': currentUserId,
+        'items_by_category': sortedItemsByCategory,
+        'total_amount': summary.totalCost,
         'status': 'pending',
-        'balanceDeducted': false,
-        'orderDate': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'balance_deducted': false,
+        'order_date': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       };
-      batch.set(orderRef, payload);
-      createdOrderIds.add(orderRef.id);
+      
+      // Insert order using Supabase
+      await ref.read(supabaseProvider).from('orders').insert(orderData);
+      createdOrderIds.add(orderId);
+      
+      // Record transaction
       try {
         final parentId = ref.read(currentUserProvider).value?.uid;
-        final txRef = FirebaseFirestore.instance.collection('parent_transactions').doc();
-        batch.set(txRef, {
-          'parentId': parentId,
-          'amount': requiredTotal,
-          'balanceBefore': parentBalance,
-          'balanceAfter': parentBalance,
-          'orderIds': createdOrderIds,
-          'reason': 'weekly_order_deferred',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        await parentService.recordTransaction(
+          parentId: parentId!,
+          amount: requiredTotal,
+          balanceBefore: parentBalance,
+          balanceAfter: parentBalance,
+          orderIds: createdOrderIds,
+          reason: 'weekly_order_deferred',
+        );
       } catch (_) {}
   // Capture navigator before awaiting to avoid using BuildContext across async gaps
   final navigator = Navigator.of(context);
-  await batch.commit();
   if (!mounted) return;
   navigator.pop(); // Close loading dialog
       // Show custom success screen
@@ -503,7 +509,7 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
                   Text('Order successfully submitted!', style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12.h),
                   Text('Order ID:', style: TextStyle(fontSize: 13.sp, color: Colors.grey)),
-                  Text(orderRef.id, style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w600)),
+                  Text(orderId, style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w600)),
                   SizedBox(height: 12.h),
                   Text('Estimated ready by lunch', style: TextStyle(fontSize: 15.sp)),
                   SizedBox(height: 18.h),
@@ -511,7 +517,7 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
                     icon: Icon(Icons.share),
                     label: Text('Share Receipt'),
                     onPressed: () {
-                      final summaryText = 'Order ID: ${orderRef.id}\nTotal: ${FormatUtils.currency(summary.totalCost)}\nETA: Ready by lunch';
+                      final summaryText = 'Order ID: $orderId\nTotal: ${FormatUtils.currency(summary.totalCost)}\nETA: Ready by lunch';
                       // TODO: Implement PDF or share intent
                       // For now, just copy to clipboard
                       Clipboard.setData(ClipboardData(text: summaryText));
