@@ -417,8 +417,8 @@ class DashboardScreen extends ConsumerWidget {
   Widget _buildDebugPanel(BuildContext context, WidgetRef ref) {
     if (!kDebugMode) return const SizedBox.shrink();
 
-  final auth = ref.read(firebaseAuthProvider);
-  final user = auth.currentUser;
+  final supabase = ref.read(supabaseProvider);
+  final user = supabase.auth.currentUser;
   // watch the refresh counter so pressing refresh will rebuild the
   // FutureBuilder below and fetch fresh claims.
   final refreshCounter = ref.watch(DashboardScreen._debugClaimsRefreshProvider);
@@ -435,23 +435,28 @@ class DashboardScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
-            SelectableText('UID: ${user?.uid ?? 'not signed in'}'),
+            SelectableText('UID: ${user?.id ?? 'not signed in'}'),
             const SizedBox(height: 8),
             FutureBuilder(
               key: ValueKey(refreshCounter),
-              // Force refresh to ensure claims are current in debug mode.
+              // Force refresh to ensure session is current in debug mode.
               // Depend on `refreshCounter` so the FutureBuilder is rebuilt when
               // the refresh button is pressed.
-              future: user != null ? user.getIdTokenResult(true) : Future.value(null),
+              future: user != null ? supabase.auth.refreshSession() : Future.value(null),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Text('Loading claims...');
+                  return const Text('Loading session...');
                 }
                 if (snapshot.hasError) {
-                  return Text('Error loading claims: ${snapshot.error}');
+                  return Text('Error loading session: ${snapshot.error}');
                 }
-                final claims = snapshot.data?.claims ?? <String, dynamic>{};
-                final pretty = const JsonEncoder.withIndent('  ').convert(claims);
+                final userMetadata = user?.userMetadata ?? <String, dynamic>{};
+                final appMetadata = user?.appMetadata ?? <String, dynamic>{};
+                final allData = {
+                  'user_metadata': userMetadata,
+                  'app_metadata': appMetadata,
+                };
+                final pretty = const JsonEncoder.withIndent('  ').convert(allData);
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,11 +464,11 @@ class DashboardScreen extends ConsumerWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Token claims:'),
+                        const Text('User metadata:'),
                         Row(
                           children: [
                             IconButton(
-                              tooltip: 'Refresh claims',
+                              tooltip: 'Refresh metadata',
                               icon: const Icon(Icons.refresh),
                               onPressed: () {
                                 // increment the refresh counter to force rebuild
@@ -478,7 +483,7 @@ class DashboardScreen extends ConsumerWidget {
                               icon: const Icon(Icons.copy),
                               onPressed: () {
                                 final messenger = ScaffoldMessenger.of(context);
-                                Clipboard.setData(ClipboardData(text: user?.uid ?? '')).then((_) {
+                                Clipboard.setData(ClipboardData(text: user?.id ?? '')).then((_) {
                                   messenger.showSnackBar(
                                     const SnackBar(content: Text('UID copied to clipboard')),
                                   );
@@ -486,13 +491,13 @@ class DashboardScreen extends ConsumerWidget {
                               },
                             ),
                             IconButton(
-                              tooltip: 'Copy claims',
+                              tooltip: 'Copy metadata',
                               icon: const Icon(Icons.file_copy),
                               onPressed: () {
                                 final messenger = ScaffoldMessenger.of(context);
                                 Clipboard.setData(ClipboardData(text: pretty)).then((_) {
                                   messenger.showSnackBar(
-                                    const SnackBar(content: Text('Claims copied to clipboard')),
+                                    const SnackBar(content: Text('Metadata copied to clipboard')),
                                   );
                                 });
                               },

@@ -261,6 +261,7 @@ class ParentService implements IParentService {
   /// This helper writes a document to `parent_transactions` collection containing
   /// details of the balance adjustment. Note: Supabase doesn't support transactions
   /// like Firestore, so this is a separate insert operation.
+  @override
   Future<void> recordTransaction({
     required String parentId,
     required double amount,
@@ -285,6 +286,7 @@ class ParentService implements IParentService {
   /// Get parent transactions stream
   ///
   /// Returns a stream of all transactions for a specific parent, ordered by created_at descending.
+  @override
   Stream<List<ParentTransaction>> getParentTransactionsStream(String parentId) {
     return _supabase
         .from('parent_transactions')
