@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 /// User role enum
 /// Supports two primary roles: admin and parent
 /// Designed for future extensibility (e.g., cashier, teacher, etc.)
@@ -11,10 +9,10 @@ enum UserRole {
   // teacher,
   // etc.
 
-  /// Convert to string for storage in Firestore (legacy support)
+  /// Convert to string for storage
   String toJson() => name;
 
-  /// Parse from string stored in Firestore
+  /// Parse from string
   /// Returns parent as default for unknown roles (safe fallback)
   static UserRole fromJson(String json) {
     return UserRole.values.firstWhere(
@@ -26,24 +24,25 @@ enum UserRole {
 
 /// App User model - represents a user account in the canteen system
 /// 
-/// This is stored in the `users` collection and contains basic account information
+/// This is stored in the `users` table and contains basic account information
 /// for ALL users regardless of role. Additional role-specific data is stored in
-/// separate collections (e.g., `parents` collection for parent-specific data).
+/// separate tables (e.g., `parents` table for parent-specific data).
 /// 
-/// Firestore Structure:
+/// Database Structure:
 /// ```
-/// users/{uid}/
-///   ├── uid: string (Firebase Auth UID)
-///   ├── firstName: string (first name)
-///   ├── lastName: string (last name)
-///   ├── email: string (email address)
-///   ├── role: string ("admin" | "parent")
-///   ├── createdAt: timestamp
-///   ├── updatedAt: timestamp (nullable)
-///   └── isActive: boolean
+/// users/
+///   ├── id: uuid (Supabase Auth UUID)
+///   ├── first_name: text (first name)
+///   ├── last_name: text (last name)
+///   ├── email: text (email address)
+///   ├── is_admin: boolean
+///   ├── is_parent: boolean
+///   ├── created_at: timestamptz
+///   ├── updated_at: timestamptz (nullable)
+///   └── is_active: boolean
 /// ```
 class AppUser {
-  /// Firebase Auth UID - used as document ID in Firestore
+  /// Supabase Auth UUID - used as primary key
   final String uid;
   
   /// User's first name
@@ -52,12 +51,11 @@ class AppUser {
   /// User's last name
   final String lastName;
   
-  /// User's email address (synced with Firebase Auth)
+  /// User's email address (synced with Supabase Auth)
   final String email;
   
-  /// Profile booleans stored in the user document.
-  /// These are used for profile information only (UI / profile pages).
-  /// Role-based access should be determined from Firebase Auth custom claims.
+  /// Profile booleans stored in the user record.
+  /// These are used for profile information and role-based access.
   final bool isAdmin;
   final bool isParent;
   
@@ -75,8 +73,8 @@ class AppUser {
     required this.firstName,
     required this.lastName,
     required this.email,
-  required this.isAdmin,
-  required this.isParent,
+    required this.isAdmin,
+    required this.isParent,
     required this.createdAt,
     this.updatedAt,
     this.isActive = true,
@@ -91,32 +89,34 @@ class AppUser {
   /// Check if user is parent (profile flag)
   bool get isParentFlag => isParent;
 
-  /// Convert to Firestore document format
-  /// This matches the required structure: uid, firstName, lastName, email, role, createdAt, isActive
+  /// Convert to database format
+  /// Maps to snake_case column names in Postgres
   Map<String, dynamic> toMap() {
     return {
-      'uid': uid,
-      'firstName': firstName,
-      'lastName': lastName,
+      'id': uid,
+      'first_name': firstName,
+      'last_name': lastName,
       'email': email,
-      // Persist profile flags. We intentionally write booleans for profile
-      // so clients can show/hide profile UI without relying on auth token.
-      'isAdmin': isAdmin,
-      'isParent': isParent,
-      'isActive': isActive,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'is_admin': isAdmin,
+      'is_parent': isParent,
+      'is_active': isActive,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
-  /// Supports backward compatibility with legacy 'name' field
+  /// Create from database record
+  /// Supports backward compatibility with legacy camelCase field names
   factory AppUser.fromMap(Map<String, dynamic> map) {
-    // Handle legacy data with 'name' field
+    // Handle both snake_case (new) and camelCase (legacy) field names
     String firstName;
     String lastName;
     
-    if (map.containsKey('firstName') && map.containsKey('lastName')) {
+    if (map.containsKey('first_name') && map.containsKey('last_name')) {
+      firstName = map['first_name'] as String;
+      lastName = map['last_name'] as String;
+    } else if (map.containsKey('firstName') && map.containsKey('lastName')) {
+      // Legacy camelCase support
       firstName = map['firstName'] as String;
       lastName = map['lastName'] as String;
     } else if (map.containsKey('name')) {
@@ -125,15 +125,19 @@ class AppUser {
       firstName = nameParts.first;
       lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
     } else {
-      throw Exception('User document must have either firstName/lastName or name field');
+      throw Exception('User document must have either first_name/last_name or name field');
     }
     
-    // Legacy compatibility: support both new boolean flags (`isAdmin`/`isParent`)
-    // and the legacy `role` string. Preference is given to explicit booleans.
+    // Handle both snake_case (new) and camelCase (legacy) for boolean flags
     final bool parsedIsAdmin;
     final bool parsedIsParent;
 
-    if (map.containsKey('isAdmin') || map.containsKey('isParent')) {
+    if (map.containsKey('is_admin') || map.containsKey('is_parent')) {
+      // New snake_case format
+      parsedIsAdmin = map['is_admin'] as bool? ?? false;
+      parsedIsParent = map['is_parent'] as bool? ?? false;
+    } else if (map.containsKey('isAdmin') || map.containsKey('isParent')) {
+      // Legacy camelCase format
       parsedIsAdmin = map['isAdmin'] as bool? ?? false;
       parsedIsParent = map['isParent'] as bool? ?? false;
     } else if (map.containsKey('role')) {
@@ -148,19 +152,38 @@ class AppUser {
       parsedIsParent = true;
     }
 
+    // Parse timestamps - handle both ISO strings and DateTime objects
+    DateTime parseDateTime(dynamic value, DateTime defaultValue) {
+      if (value == null) return defaultValue;
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.parse(value);
+      return defaultValue;
+    }
+
+    // Handle both snake_case (new) and camelCase (legacy) for other fields
+    final uid = (map['id'] ?? map['uid']) as String;
+    final email = map['email'] as String;
+    final isActive = (map['is_active'] ?? map['isActive']) as bool? ?? true;
+    final createdAt = parseDateTime(
+      map['created_at'] ?? map['createdAt'],
+      DateTime.now(),
+    );
+    final updatedAt = parseDateTime(
+      map['updated_at'] ?? map['updatedAt'],
+      DateTime.now(),
+    );
+
     return AppUser(
-      uid: map['uid'] as String,
+      uid: uid,
       firstName: firstName,
       lastName: lastName,
-      email: map['email'] as String,
+      email: email,
       isAdmin: parsedIsAdmin,
       isParent: parsedIsParent,
-      isActive: map['isActive'] as bool? ?? true,
-      createdAt: map['createdAt'] != null 
-          ? (map['createdAt'] as Timestamp).toDate() 
-          : DateTime.now(),
-      updatedAt: map['updatedAt'] != null 
-          ? (map['updatedAt'] as Timestamp).toDate() 
+      isActive: isActive,
+      createdAt: createdAt,
+      updatedAt: map.containsKey('updated_at') || map.containsKey('updatedAt') 
+          ? updatedAt 
           : null,
     );
   }
