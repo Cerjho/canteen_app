@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Top-up Status
@@ -84,59 +83,60 @@ class Topup {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document
+  /// Convert to database document
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'parentId': parentId,
-      'parentName': parentName,
-      'studentId': studentId,
-      'studentName': studentName,
+      'parent_id': parentId,
+      'parent_name': parentName,
+      'student_id': studentId,
+      'student_name': studentName,
       'amount': amount,
       'status': status.name,
-      'paymentMethod': paymentMethod.name,
-      'transactionReference': transactionReference,
-      'proofImageUrl': proofImageUrl,
+      'payment_method': paymentMethod.name,
+      'transaction_reference': transactionReference,
+      'proof_image_url': proofImageUrl,
       'notes': notes,
-      'adminNotes': adminNotes,
-      'processedBy': processedBy,
-      'requestDate': Timestamp.fromDate(requestDate),
-      'processedAt':
-          processedAt != null ? Timestamp.fromDate(processedAt!) : null,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'admin_notes': adminNotes,
+      'processed_by': processedBy,
+      'request_date': requestDate.toIso8601String(),
+      'processed_at': processedAt?.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Topup.fromMap(Map<String, dynamic> map) {
     return Topup(
       id: map['id'] as String,
-      parentId: map['parentId'] as String,
-      parentName: map['parentName'] as String,
-      studentId: map['studentId'] as String?,
-      studentName: map['studentName'] as String?,
+      parentId: (map['parent_id'] ?? map['parentId']) as String,
+      parentName: (map['parent_name'] ?? map['parentName']) as String,
+      studentId: (map['student_id'] ?? map['studentId']) as String?,
+      studentName: (map['student_name'] ?? map['studentName']) as String?,
       amount: (map['amount'] as num).toDouble(),
       status: TopupStatus.values.firstWhere(
         (e) => e.name == map['status'],
         orElse: () => TopupStatus.pending,
       ),
       paymentMethod: PaymentMethod.values.firstWhere(
-        (e) => e.name == map['paymentMethod'],
+        (e) => e.name == (map['payment_method'] ?? map['paymentMethod']),
         orElse: () => PaymentMethod.cash,
       ),
-      transactionReference: map['transactionReference'] as String?,
-      proofImageUrl: map['proofImageUrl'] as String?,
+      transactionReference: (map['transaction_reference'] ?? map['transactionReference']) as String?,
+      proofImageUrl: (map['proof_image_url'] ?? map['proofImageUrl']) as String?,
       notes: map['notes'] as String?,
-      adminNotes: map['adminNotes'] as String?,
-      processedBy: map['processedBy'] as String?,
-      requestDate: (map['requestDate'] as Timestamp).toDate(),
-      processedAt: map['processedAt'] != null
-          ? (map['processedAt'] as Timestamp).toDate()
+      adminNotes: (map['admin_notes'] ?? map['adminNotes']) as String?,
+      processedBy: (map['processed_by'] ?? map['processedBy']) as String?,
+      requestDate: DateTime.parse((map['request_date'] ?? map['requestDate']) as String),
+      processedAt: (map['processed_at'] ?? map['processedAt']) != null
+          ? DateTime.parse((map['processed_at'] ?? map['processedAt']) as String)
           : null,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

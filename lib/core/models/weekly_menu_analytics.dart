@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'menu_item.dart';
 
 /// Analytics model for tracking weekly menu performance and ordering patterns
@@ -25,40 +24,42 @@ class WeeklyMenuAnalytics {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document
+  /// Convert to database document
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'weekStartDate': weekStartDate,
-      'popularItemsByDay': popularItemsByDay,
-      'totalOrderCounts': totalOrderCounts,
-      'orderCountsByDay': orderCountsByDay,
-      'ordersByMealType': ordersByMealType,
-      'totalOrders': totalOrders,
-      'calculatedAt': Timestamp.fromDate(calculatedAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'week_start_date': weekStartDate,
+      'popular_items_by_day': popularItemsByDay,
+      'total_order_counts': totalOrderCounts,
+      'order_counts_by_day': orderCountsByDay,
+      'orders_by_meal_type': ordersByMealType,
+      'total_orders': totalOrders,
+      'calculated_at': calculatedAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory WeeklyMenuAnalytics.fromMap(Map<String, dynamic> map) {
     // Parse popularItemsByDay
     final Map<String, List<String>> parsedPopularItems = {};
-    final rawPopularItems = map['popularItemsByDay'] as Map<String, dynamic>;
+    final rawPopularItems = (map['popular_items_by_day'] ?? map['popularItemsByDay']) as Map<String, dynamic>;
     for (var entry in rawPopularItems.entries) {
       parsedPopularItems[entry.key] = List<String>.from(entry.value as List);
     }
 
     // Parse totalOrderCounts
     final Map<String, int> parsedTotalCounts = {};
-    final rawTotalCounts = map['totalOrderCounts'] as Map<String, dynamic>;
+    final rawTotalCounts = (map['total_order_counts'] ?? map['totalOrderCounts']) as Map<String, dynamic>;
     for (var entry in rawTotalCounts.entries) {
       parsedTotalCounts[entry.key] = entry.value as int;
     }
 
     // Parse orderCountsByDay
     final Map<String, Map<String, int>> parsedOrdersByDay = {};
-    final rawOrdersByDay = map['orderCountsByDay'] as Map<String, dynamic>;
+    final rawOrdersByDay = (map['order_counts_by_day'] ?? map['orderCountsByDay']) as Map<String, dynamic>;
     for (var dayEntry in rawOrdersByDay.entries) {
       final day = dayEntry.key;
       final itemCounts = dayEntry.value as Map<String, dynamic>;
@@ -70,22 +71,22 @@ class WeeklyMenuAnalytics {
 
     // Parse ordersByMealType
     final Map<String, int> parsedMealTypeCounts = {};
-    final rawMealTypeCounts = map['ordersByMealType'] as Map<String, dynamic>;
+    final rawMealTypeCounts = (map['orders_by_meal_type'] ?? map['ordersByMealType']) as Map<String, dynamic>;
     for (var entry in rawMealTypeCounts.entries) {
       parsedMealTypeCounts[entry.key] = entry.value as int;
     }
 
     return WeeklyMenuAnalytics(
       id: map['id'] as String,
-      weekStartDate: map['weekStartDate'] as String,
+      weekStartDate: (map['week_start_date'] ?? map['weekStartDate']) as String,
       popularItemsByDay: parsedPopularItems,
       totalOrderCounts: parsedTotalCounts,
       orderCountsByDay: parsedOrdersByDay,
       ordersByMealType: parsedMealTypeCounts,
-      totalOrders: map['totalOrders'] as int,
-      calculatedAt: (map['calculatedAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      totalOrders: map['total_orders'] ?? map['totalOrders'] as int,
+      calculatedAt: DateTime.parse((map['calculated_at'] ?? map['calculatedAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

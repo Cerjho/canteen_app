@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Parent model - represents a parent/guardian in the canteen system
@@ -62,35 +61,37 @@ class Parent {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document format
+  /// Convert to database document format
   /// Matches the required structure: userId, balance, address, phone, children[]
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
-      'userId': userId,
+      'user_id': userId,
       'balance': balance,
       'address': address,
       'phone': phone,
       'children': children,
-      'photoUrl': photoUrl,
-      'isActive': isActive,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'photo_url': photoUrl,
+      'is_active': isActive,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Parent.fromMap(Map<String, dynamic> map) {
     return Parent(
-      userId: map['userId'] as String,
-      balance: (map['balance'] as num?)?.toDouble() ?? 0.0,
+      userId: (map['user_id'] ?? map['userId']) as String,
+      balance: ((map['balance'] as num?)?.toDouble()) ?? 0.0,
       address: map['address'] as String?,
       phone: map['phone'] as String?,
       children: List<String>.from(map['children'] ?? []),
-      photoUrl: map['photoUrl'] as String?,
-      isActive: map['isActive'] as bool? ?? true,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      photoUrl: (map['photo_url'] ?? map['photoUrl']) as String?,
+      isActive: (map['is_active'] ?? map['isActive']) as bool? ?? true,
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

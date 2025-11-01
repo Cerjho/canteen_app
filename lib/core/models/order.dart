@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Order Item - individual items in an order
@@ -95,48 +94,49 @@ class Order {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document
+  /// Convert to database document
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'studentId': studentId,
-      'studentName': studentName,
-      'parentId': parentId,
+      'student_id': studentId,
+      'student_name': studentName,
+      'parent_id': parentId,
       'items': items.map((item) => item.toMap()).toList(),
-      'totalAmount': totalAmount,
+      'total_amount': totalAmount,
       'status': status.name,
-      'orderDate': Timestamp.fromDate(orderDate),
-      'completedAt':
-          completedAt != null ? Timestamp.fromDate(completedAt!) : null,
+      'order_date': orderDate.toIso8601String(),
+      'completed_at': completedAt?.toIso8601String(),
       'notes': notes,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Order.fromMap(Map<String, dynamic> map) {
     return Order(
       id: map['id'] as String,
-      studentId: map['studentId'] as String,
-      studentName: map['studentName'] as String,
-      parentId: map['parentId'] as String?,
+      studentId: (map['student_id'] ?? map['studentId']) as String,
+      studentName: (map['student_name'] ?? map['studentName']) as String,
+      parentId: (map['parent_id'] ?? map['parentId']) as String?,
       items: (map['items'] as List)
           .map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
           .toList(),
-      totalAmount: (map['totalAmount'] as num).toDouble(),
+      totalAmount: ((map['total_amount'] ?? map['totalAmount']) as num).toDouble(),
       status: OrderStatus.values.firstWhere(
         (e) => e.name == map['status'],
         orElse: () => OrderStatus.pending,
       ),
-      orderDate: (map['orderDate'] as Timestamp).toDate(),
-      completedAt: map['completedAt'] != null
-          ? (map['completedAt'] as Timestamp).toDate()
+      orderDate: DateTime.parse((map['order_date'] ?? map['orderDate']) as String),
+      completedAt: (map['completed_at'] ?? map['completedAt']) != null
+          ? DateTime.parse((map['completed_at'] ?? map['completedAt']) as String)
           : null,
       notes: map['notes'] as String?,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

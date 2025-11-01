@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Student model - represents a student in the canteen system
@@ -79,39 +78,41 @@ class Student {
   /// Get full name of student
   String get fullName => '$firstName $lastName';
 
-  /// Convert to Firestore document format
+  /// Convert to database document format
   /// Matches the required structure: id, parentId, name, gradeLevel, balance
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'firstName': firstName,
-      'lastName': lastName,
+      'first_name': firstName,
+      'last_name': lastName,
       'grade': grade,
-      'parentId': parentId,
+      'parent_id': parentId,
       'allergies': allergies,
-      'dietaryRestrictions': dietaryRestrictions,
-      'photoUrl': photoUrl,
-      'isActive': isActive,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'dietary_restrictions': dietaryRestrictions,
+      'photo_url': photoUrl,
+      'is_active': isActive,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Student.fromMap(Map<String, dynamic> map) {
     return Student(
       id: map['id'] as String,
-      firstName: map['firstName'] as String,
-      lastName: map['lastName'] as String,
+      firstName: (map['first_name'] ?? map['firstName']) as String,
+      lastName: (map['last_name'] ?? map['lastName']) as String,
       grade: map['grade'] as String,
-      parentId: map['parentId'] as String?,
+      parentId: (map['parent_id'] ?? map['parentId']) as String?,
       allergies: map['allergies'] as String?,
-      dietaryRestrictions: map['dietaryRestrictions'] as String?,
-      photoUrl: map['photoUrl'] as String?,
-      isActive: map['isActive'] as bool? ?? true,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      dietaryRestrictions: (map['dietary_restrictions'] ?? map['dietaryRestrictions']) as String?,
+      photoUrl: (map['photo_url'] ?? map['photoUrl']) as String?,
+      isActive: (map['is_active'] ?? map['isActive']) as bool? ?? true,
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

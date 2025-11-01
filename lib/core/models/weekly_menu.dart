@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// Meal Type constants for weekly menu organization
@@ -53,26 +52,28 @@ class WeeklyMenu {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document
+  /// Convert to database document
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'weekStartDate': weekStartDate,
-      'copiedFromWeek': copiedFromWeek,
-      'menuByDay': menuByDay,
-      'isPublished': isPublished,
-      'publishedAt': publishedAt != null ? Timestamp.fromDate(publishedAt!) : null,
-      'publishedBy': publishedBy,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'week_start_date': weekStartDate,
+      'copied_from_week': copiedFromWeek,
+      'menu_by_day': menuByDay,
+      'is_published': isPublished,
+      'published_at': publishedAt?.toIso8601String(),
+      'published_by': publishedBy,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory WeeklyMenu.fromMap(Map<String, dynamic> map) {
     // Parse nested menuByDay structure: Day -> MealType -> MenuItem IDs
     final Map<String, Map<String, List<String>>> parsedMenuByDay = {};
-    final rawMenuByDay = map['menuByDay'] as Map<String, dynamic>? ?? {}; // Null-safe
+    final rawMenuByDay = (map['menu_by_day'] ?? map['menuByDay']) as Map<String, dynamic>? ?? {}; // Null-safe
     
     for (var dayEntry in rawMenuByDay.entries) {
       final day = dayEntry.key;
@@ -88,17 +89,17 @@ class WeeklyMenu {
     
     return WeeklyMenu(
       id: map['id'] as String,
-      weekStartDate: map['weekStartDate'] as String,
-      copiedFromWeek: map['copiedFromWeek'] as String?,
+      weekStartDate: (map['week_start_date'] ?? map['weekStartDate']) as String,
+      copiedFromWeek: (map['copied_from_week'] ?? map['copiedFromWeek']) as String?,
       menuByDay: parsedMenuByDay,
-      isPublished: map['isPublished'] as bool? ?? false,
-      publishedAt: map['publishedAt'] != null
-          ? (map['publishedAt'] as Timestamp).toDate()
+      isPublished: (map['is_published'] ?? map['isPublished']) as bool? ?? false,
+      publishedAt: (map['published_at'] ?? map['publishedAt']) != null
+          ? DateTime.parse((map['published_at'] ?? map['publishedAt']) as String)
           : null, // Null-safe for unpublished menus
-      publishedBy: map['publishedBy'] as String?,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      publishedBy: (map['published_by'] ?? map['publishedBy']) as String?,
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

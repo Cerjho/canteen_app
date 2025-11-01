@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// MenuItem model - represents a food/drink item in the master inventory catalog
@@ -47,7 +46,8 @@ class MenuItem {
     this.updatedAt,
   });
 
-  /// Convert to Firestore document
+  /// Convert to database document
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -55,20 +55,21 @@ class MenuItem {
       'description': description,
       'price': price,
       'category': category,
-      'imageUrl': imageUrl,
+      'image_url': imageUrl,
       'allergens': allergens,
-      'isVegetarian': isVegetarian,
-      'isVegan': isVegan,
-      'isGlutenFree': isGlutenFree,
-      'isAvailable': isAvailable,
-      'stockQuantity': stockQuantity,
+      'is_vegetarian': isVegetarian,
+      'is_vegan': isVegan,
+      'is_gluten_free': isGlutenFree,
+      'is_available': isAvailable,
+      'stock_quantity': stockQuantity,
       'calories': calories,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
     };
   }
 
-  /// Create from Firestore document
+  /// Create from database document
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory MenuItem.fromMap(Map<String, dynamic> map) {
     return MenuItem(
       id: map['id'] as String,
@@ -76,17 +77,17 @@ class MenuItem {
       description: map['description'] as String,
       price: (map['price'] as num).toDouble(),
       category: map['category'] as String,
-      imageUrl: map['imageUrl'] as String?,
+      imageUrl: (map['image_url'] ?? map['imageUrl']) as String?,
       allergens: List<String>.from(map['allergens'] ?? []),
-      isVegetarian: map['isVegetarian'] as bool? ?? false,
-      isVegan: map['isVegan'] as bool? ?? false,
-      isGlutenFree: map['isGlutenFree'] as bool? ?? false,
-      isAvailable: map['isAvailable'] as bool? ?? true,
-      stockQuantity: map['stockQuantity'] as int?,
+      isVegetarian: (map['is_vegetarian'] ?? map['isVegetarian']) as bool? ?? false,
+      isVegan: (map['is_vegan'] ?? map['isVegan']) as bool? ?? false,
+      isGlutenFree: (map['is_gluten_free'] ?? map['isGlutenFree']) as bool? ?? false,
+      isAvailable: (map['is_available'] ?? map['isAvailable']) as bool? ?? true,
+      stockQuantity: (map['stock_quantity'] ?? map['stockQuantity']) as int?,
       calories: map['calories'] as int?,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
+      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
+          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
           : null,
     );
   }

@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 /// CartItem model - represents an item in the shopping cart
@@ -36,37 +35,47 @@ class CartItem {
   /// Calculate total price for this cart item
   double get total => price * quantity;
 
-  /// Create from map (for Firestore or local storage)
+  /// Create from map (for database or local storage)
+  /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory CartItem.fromMap(Map<String, dynamic> map) {
+    // Parse addedAt - support both ISO8601 strings and legacy formats
+    final addedAtValue = map['added_at'] ?? map['addedAt'];
+    DateTime parsedAddedAt;
+    if (addedAtValue is String) {
+      parsedAddedAt = DateTime.parse(addedAtValue);
+    } else {
+      // Fallback for unexpected formats - use current time
+      parsedAddedAt = DateTime.now();
+    }
+    
     return CartItem(
       id: map['id'] as String,
-      menuItemId: map['menuItemId'] as String,
+      menuItemId: (map['menu_item_id'] ?? map['menuItemId']) as String,
       name: map['name'] as String,
-      imageUrl: map['imageUrl'] as String?,
+      imageUrl: (map['image_url'] ?? map['imageUrl']) as String?,
       price: (map['price'] as num).toDouble(),
       quantity: map['quantity'] as int,
       category: map['category'] as String,
-      addedAt: map['addedAt'] is Timestamp
-          ? (map['addedAt'] as Timestamp).toDate()
-          : DateTime.parse(map['addedAt'] as String),
-      studentId: map['studentId'] as String?,
-      studentName: map['studentName'] as String?,
+      addedAt: parsedAddedAt,
+      studentId: (map['student_id'] ?? map['studentId']) as String?,
+      studentName: (map['student_name'] ?? map['studentName']) as String?,
     );
   }
 
-  /// Convert to map (for Firestore or local storage)
+  /// Convert to map (for database or local storage)
+  /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'menuItemId': menuItemId,
+      'menu_item_id': menuItemId,
       'name': name,
-      'imageUrl': imageUrl,
+      'image_url': imageUrl,
       'price': price,
       'quantity': quantity,
       'category': category,
-      'addedAt': Timestamp.fromDate(addedAt),
-      'studentId': studentId,
-      'studentName': studentName,
+      'added_at': addedAt.toIso8601String(),
+      'student_id': studentId,
+      'student_name': studentName,
     };
   }
 
