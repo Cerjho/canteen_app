@@ -63,7 +63,7 @@ final currentUserProvider = StreamProvider<AppUser?>((ref) {
   final authState = ref.watch(authStateProvider);
   final user = authState.value;
   if (user == null) return Stream.value(null);
-  return ref.watch(userServiceProvider).getUserStream(user.uid);
+  return ref.watch(userServiceProvider).getUserStream(user.id);
 });
 
 /// User Role Provider

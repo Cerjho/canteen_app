@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/user_role.dart';
 import '../interfaces/i_auth_service.dart';
@@ -28,7 +27,7 @@ class AuthService implements IAuthService {
     required RegistrationService registrationService,
   })  : _supabase = supabase ?? Supabase.instance.client,
         _googleSignIn = googleSignIn ?? GoogleSignIn(
-          serverClientId: dotenv.env['GOOGLE_CLIENT_ID'],
+          scopes: const ['email', 'profile'],
         ),
         _userService = userService ?? UserService(),
         _registrationService = registrationService;
@@ -111,7 +110,7 @@ class AuthService implements IAuthService {
   /// Sign in with Google
   /// Uses Supabase OAuth on both web and mobile
   @override
-  Future<bool> signInWithGoogle() async {
+  Future<AuthResponse?> signInWithGoogle() async {
     try {
       AppLogger.debug('signInWithGoogle(): start');
       
@@ -119,16 +118,16 @@ class AuthService implements IAuthService {
         AppLogger.debug('signInWithGoogle(): using web OAuth flow');
         // Web: Use Supabase OAuth
         await _supabase.auth.signInWithOAuth(
-          Provider.google,
+          OAuthProvider.google,
           redirectTo: kIsWeb ? null : 'io.supabase.canteenapp://login-callback/',
         );
         
-        // For web, the browser handles the redirect, so we return true
-        return true;
+        // For web, the browser handles the redirect, so we return null
+        return null; // Web OAuth redirects, no immediate response
       } else {
         // Mobile: Use google_sign_in package for better UX
         AppLogger.debug('signInWithGoogle(): calling GoogleSignIn.signIn()');
-        final googleUser = await _googleSignIn.signIn();
+        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
         AppLogger.debug('signInWithGoogle(): GoogleSignIn.signIn() returned: $googleUser');
         
         if (googleUser == null) {
@@ -190,7 +189,7 @@ class AuthService implements IAuthService {
         }
 
         AppLogger.debug('signInWithGoogle(): returning success');
-        return true;
+        return response;
       }
     } catch (e) {
       AppLogger.error('signInWithGoogle(): error: $e', error: e);

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/menu_item.dart';
 import '../providers/app_providers.dart';
 import 'seed_data_util.dart';
@@ -98,7 +98,7 @@ class SeedUtils {
       }
 
       // Seed the orders
-      final seedUtil = SeedAnalyticsData(FirebaseFirestore.instance);
+      final seedUtil = SeedAnalyticsData(Supabase.instance.client);
       await seedUtil.seedOrdersForCurrentWeek(menuItems);
 
       if (context.mounted) {
@@ -183,7 +183,7 @@ class SeedUtils {
       }
 
       // Seed the orders
-      final seedUtil = SeedAnalyticsData(FirebaseFirestore.instance);
+      final seedUtil = SeedAnalyticsData(Supabase.instance.client);
       await seedUtil.seedOrdersForCurrentWeek(menuItems);
 
       if (context.mounted) {

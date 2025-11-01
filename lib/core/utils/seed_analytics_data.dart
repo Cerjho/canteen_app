@@ -1,14 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/menu_item.dart';
 import 'app_logger.dart';
 
 /// Utility class to seed test order data for analytics testing
 class SeedAnalyticsData {
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
   final Uuid _uuid = const Uuid();
 
-  SeedAnalyticsData(this._firestore);
+  SeedAnalyticsData(this._supabase);
 
   /// Seed sample orders for analytics testing
   /// This creates realistic order data for the current week
@@ -22,19 +22,20 @@ class SeedAnalyticsData {
       
       // Fetch real students from Firestore
       AppLogger.info('👥 Fetching students from Firestore...');
-      final studentsSnapshot = await _firestore.collection('students').get();
+      final studentsData = await _supabase
+          .from('students')
+          .select('id, first_name, last_name');
       
-      if (studentsSnapshot.docs.isEmpty) {
+      if (studentsData.isEmpty) {
         AppLogger.warning('⚠️ Warning: No students found. Please seed students first.');
         return;
       }
       
       // Extract student data
-      final students = studentsSnapshot.docs.map((doc) {
-        final data = doc.data();
+      final students = (studentsData as List).map((data) {
         return {
           'id': data['id'] as String,
-          'name': '${data['firstName']} ${data['lastName']}',
+          'name': '${data['first_name']} ${data['last_name']}',
         };
       }).toList();
       
@@ -122,16 +123,16 @@ class SeedAnalyticsData {
           // Create order document
           final orderData = {
             'id': orderId,
-            'studentId': studentId,
-            'studentName': studentName,
-            'orderDate': Timestamp.fromDate(orderDate),
+            'student_id': studentId,
+            'student_name': studentName,
+            'order_date': orderDate.toIso8601String(),
             'items': orderItems,
-            'totalAmount': totalAmount,
+            'total_amount': totalAmount,
             'status': 'completed',
-            'createdAt': Timestamp.fromDate(orderDate),
+            'created_at': orderDate.toIso8601String(),
           };
           
-          await _firestore.collection('orders').doc(orderId).set(orderData);
+          await _supabase.from('orders').insert(orderData);
           totalOrders++;
         }
         
@@ -154,11 +155,14 @@ class SeedAnalyticsData {
   Future<void> clearAllOrders() async {
     try {
       AppLogger.info('🗑️ Clearing all orders...');
-      final snapshot = await _firestore.collection('orders').get();
-      for (var doc in snapshot.docs) {
-        await doc.reference.delete();
+      final ordersData = await _supabase.from('orders').select('id');
+      final orderIds = (ordersData as List).map((order) => order['id'] as String).toList();
+      
+      if (orderIds.isNotEmpty) {
+        await _supabase.from('orders').delete().inFilter('id', orderIds);
       }
-      AppLogger.info('✅ Cleared ${snapshot.docs.length} orders');
+      
+      AppLogger.info('✅ Cleared ${orderIds.length} orders');
     } catch (e) {
       AppLogger.error('❌ Error clearing orders', error: e);
       rethrow;
