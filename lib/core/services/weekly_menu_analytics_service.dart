@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/weekly_menu_analytics.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_weekly_menu_analytics_service.dart';
 
 /// Service for calculating and managing weekly menu analytics
@@ -16,17 +15,17 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   @override
   Future<WeeklyMenuAnalytics?> getAnalyticsForWeek(String weekStartDate) async {
     try {
-      final querySnapshot = await _supabase
+      final data = await _supabase
           .from('menu_analytics')
-          .eq(DatabaseConstants.weekStartDate, weekStartDate)
-          .limit(1)
-          .get();
+          .select()
+          .eq('week_start_date', weekStartDate)
+          .limit(1);
 
-      if (querydata.isEmpty) {
+      if ((data as List).isEmpty) {
         return null;
       }
 
-      return WeeklyMenuAnalytics.fromMap(query(data as List).first);
+      return WeeklyMenuAnalytics.fromMap((data as List).first);
     } catch (e) {
       throw Exception('Failed to get analytics for week: $e');
     }
@@ -37,12 +36,12 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   Stream<WeeklyMenuAnalytics?> streamAnalyticsForWeek(String weekStartDate) {
     return _supabase
         .from('menu_analytics')
-        .eq(DatabaseConstants.weekStartDate, weekStartDate)
+        .stream(primaryKey: ['id'])
+        .eq('week_start_date', weekStartDate)
         .limit(1)
-        .snapshots()
-        .map((snapshot) {
+        .map((data) {
       if (data.isEmpty) return null;
-      return WeeklyMenuAnalytics.fromMap((data as List).first);
+      return WeeklyMenuAnalytics.fromMap(data.first);
     });
   }
 
@@ -64,25 +63,25 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
       int totalOrders = 0;
 
       // Query orders for this week
-      final ordersSnapshot = await _supabase
+      final ordersData = await _supabase
           .from('orders')
-          .gte(DatabaseConstants.orderDate, weekStart.toIso8601String())
-          .lt(DatabaseConstants.orderDate, weekEnd.toIso8601String())
-          .get();
+          .select()
+          .gte('order_date', weekStart.toIso8601String())
+          .lt('order_date', weekEnd.toIso8601String());
 
       // Process each order
-      for (var orderDoc in ordersdata) {
-        final orderData = orderdata;
-        final orderDate = (orderData[DatabaseConstants.orderDate] as Timestamp).toDate();
+      for (var orderDoc in (ordersData as List)) {
+        final orderData = orderDoc;
+        final orderDate = DateTime.parse(orderData['order_date'] as String);
         final dayName = _getDayName(orderDate.weekday);
         
         // Get items from order
-        final items = orderData[DatabaseConstants.items] as List<dynamic>? ?? [];
+        final items = orderData['items'] as List<dynamic>? ?? [];
         
         for (var item in items) {
-          final itemId = item[DatabaseConstants.menuItemId] as String?;
-          final mealType = item[DatabaseConstants.mealType] as String? ?? 'unknown';
-          final quantity = item[DatabaseConstants.quantity] as int? ?? 1;
+          final itemId = item['menu_item_id'] as String?;
+          final mealType = item['meal_type'] as String? ?? 'unknown';
+          final quantity = item['quantity'] as int? ?? 1;
           
           if (itemId == null) continue;
           
@@ -120,11 +119,10 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
         calculatedAt: DateTime.now(),
       );
 
-      // Save to Firestore
+      // Save to Supabase
       await _supabase
           .from('menu_analytics')
-          .doc(analytics.id)
-          .set(analytics.toMap());
+          .insert(analytics.toMap());
 
       return analytics;
     } catch (e) {
@@ -157,14 +155,14 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   @override
   Future<List<WeeklyMenuAnalytics>> getRecentAnalytics(int numberOfWeeks) async {
     try {
-      final querySnapshot = await _supabase
+      final data = await _supabase
           .from('menu_analytics')
-          .order(DatabaseConstants.weekStartDate, ascending: false)
-          .limit(numberOfWeeks)
-          .get();
+          .select()
+          .order('week_start_date', ascending: false)
+          .limit(numberOfWeeks);
 
-      return querydata
-          .map((doc) => WeeklyMenuAnalytics.fromMap(item))
+      return (data as List)
+          .map((item) => WeeklyMenuAnalytics.fromMap(item))
           .toList();
     } catch (e) {
       throw Exception('Failed to get recent analytics: $e');
@@ -181,14 +179,10 @@ class WeeklyMenuAnalyticsService implements IWeeklyMenuAnalyticsService {
   @override
   Future<void> deleteAnalytics(String weekStartDate) async {
     try {
-      final querySnapshot = await _supabase
+      await _supabase
           .from('menu_analytics')
-          .eq(DatabaseConstants.weekStartDate, weekStartDate)
-          .get();
-
-      for (var doc in querydata) {
-        await doc.reference.delete();
-      }
+          .delete()
+          .eq('week_start_date', weekStartDate);
     } catch (e) {
       throw Exception('Failed to delete analytics: $e');
     }

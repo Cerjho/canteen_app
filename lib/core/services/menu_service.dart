@@ -5,7 +5,6 @@ import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
 import 'package:uuid/uuid.dart';
 import '../models/menu_item.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_menu_service.dart';
 
 /// MenuService - Master Inventory Management Service
@@ -36,8 +35,8 @@ class MenuService implements IMenuService {
   Stream<List<MenuItem>> getMenuItems() {
     return _supabase
         .from('menu_items')
-        .order(DatabaseConstants.createdAt, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => MenuItem.fromMap(item)).toList());
   }
@@ -47,9 +46,9 @@ class MenuService implements IMenuService {
   Stream<List<MenuItem>> getAvailableMenuItems() {
     return _supabase
         .from('menu_items')
-        .eq(DatabaseConstants.isAvailable, true)
-        .order(DatabaseConstants.createdAt, ascending: false)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('is_available', true)
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => MenuItem.fromMap(item)).toList());
   }
@@ -59,9 +58,9 @@ class MenuService implements IMenuService {
   Stream<List<MenuItem>> getMenuItemsByCategory(String category) {
     return _supabase
         .from('menu_items')
-        .eq(DatabaseConstants.category, category)
+        .stream(primaryKey: ['id'])
+        .eq('category', category)
         .order('name')
-        .snapshots()
         .map((data) =>
             data.map((item) => MenuItem.fromMap(item)).toList());
   }
@@ -81,10 +80,10 @@ class MenuService implements IMenuService {
   Stream<MenuItem?> getMenuItemStream(String id) {
     return _supabase
         .from('menu_items')
-        .doc(id)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('id', id)
         .map((data) =>
-            item != null ? MenuItem.fromMap(item) : null);
+            data.isNotEmpty ? MenuItem.fromMap(data.first) : null);
   }
 
   /// Create a new menu item (Alias for createMenuItem)
@@ -98,8 +97,7 @@ class MenuService implements IMenuService {
     
     await _supabase
         .from('menu_items')
-        .doc(menuItem.id)
-        .set(menuItem.toMap());
+        .insert(menuItem.toMap());
   }
 
   /// Create a new menu item
@@ -109,11 +107,11 @@ class MenuService implements IMenuService {
 
   /// Check if a menu item with the same name exists
   Future<MenuItem?> _checkDuplicateByName(String name) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('menu_items')
+        .select()
         .eq('name', name)
-        .limit(1)
-        .get();
+        .limit(1);
     
     if ((data as List).isNotEmpty) {
       return MenuItem.fromMap((data as List).first);
@@ -127,8 +125,8 @@ class MenuService implements IMenuService {
     final updatedMenuItem = menuItem.copyWith(updatedAt: DateTime.now());
     await _supabase
         .from('menu_items')
-        .doc(menuItem.id)
-        .update(updatedMenuItem.toMap());
+        .update(updatedMenuItem.toMap())
+        .eq('id', menuItem.id);
   }
 
   /// Delete menu item
@@ -147,7 +145,7 @@ class MenuService implements IMenuService {
   Future<void> toggleAvailabilityAuto(String menuItemId) async {
     final data = await _supabase.from('menu_items').select().eq('id', menuItemId).maybeSingle();
     if (data != null) {
-      final currentAvailability = data!['isAvailable'] as bool? ?? true;
+      final currentAvailability = data['is_available'] as bool? ?? true;
       await updateAvailability(menuItemId, !currentAvailability);
     }
   }
@@ -155,53 +153,51 @@ class MenuService implements IMenuService {
   /// Update menu item availability
   Future<void> updateAvailability(String menuItemId, bool isAvailable) async {
     await _supabase.from('menu_items').update({
-      'isAvailable': isAvailable,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
-    });
+      'is_available': isAvailable,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', menuItemId);
   }
 
   /// Update stock quantity
   @override
   Future<void> updateStockQuantity(String id, int quantity) async {
     await _supabase.from('menu_items').update({
-      DatabaseConstants.stockQuantity: quantity,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', id),
-    });
+      'stock_quantity': quantity,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
   }
 
   /// Update stock (legacy method - alias)
   Future<void> updateStock(String menuItemId, int quantity) async {
     await _supabase.from('menu_items').update({
-      DatabaseConstants.stockQuantity: quantity,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
-    });
+      'stock_quantity': quantity,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', menuItemId);
   }
 
   /// Delete menu item image from storage and update Firestore
   Future<void> deleteMenuItemImage(String menuItemId) async {
     await _supabase.from('menu_items').update({
-      'imageUrl': null,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
-    });
+      'image_url': null,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', menuItemId);
   }
 
   /// Update menu item image URL
   Future<void> updateMenuItemImage(String menuItemId, String imageUrl) async {
     await _supabase.from('menu_items').update({
-      'imageUrl': imageUrl,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuItemId),
-    });
+      'image_url': imageUrl,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', menuItemId);
   }
 
   /// Get menu items by available days
+  /// Note: This returns all menu items. Day availability is managed via WeeklyMenuService.
   @override
   Stream<List<MenuItem>> getMenuItemsByAvailableDays(List<String> days) {
-    return _supabase
-        .from('menu_items')
-        .overlaps('availableDays', days)
-        .snapshots()
-        .map((data) =>
-            data.map((item) => MenuItem.fromMap(item)).toList());
+    // MenuItem model doesn't have availableDays field - it's managed at weekly menu level
+    // Return all available items - filtering by days should be done at WeeklyMenuService level
+    return getAvailableMenuItems();
   }
 
   /// Get breakfast items
@@ -233,11 +229,11 @@ class MenuService implements IMenuService {
   Stream<List<MenuItem>> searchMenuItems(String query) {
     return _supabase
         .from('menu_items')
+        .stream(primaryKey: ['id'])
         .order('name')
-        .snapshots()
         .map((data) => data
-            .map((doc) => MenuItem.fromMap(item))
-            .eq((item) =>
+            .map((item) => MenuItem.fromMap(item))
+            .where((item) =>
                 item.name.toLowerCase().contains(query.toLowerCase()) ||
                 item.description.toLowerCase().contains(query.toLowerCase()))
             .toList());
@@ -245,9 +241,9 @@ class MenuService implements IMenuService {
 
   /// Get menu categories
   Future<List<String>> getCategories() async {
-    final snapshot = await _supabase.from('menu_items').get();
-    final categories = data
-        .map((doc) => data['category'] as String)
+    final data = await _supabase.from('menu_items').select();
+    final categories = (data as List)
+        .map((item) => item['category'] as String)
         .toSet()
         .toList();
     categories.sort();
@@ -256,17 +252,16 @@ class MenuService implements IMenuService {
 
   /// Get menu items count
   Future<int> getMenuItemsCount() async {
-    final snapshot = await _supabase.from('menu_items').select('id');
+    final data = await _supabase.from('menu_items').select('id');
     return (data as List).length;
   }
 
   /// Get available menu items count
   Future<int> getAvailableMenuItemsCount() async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('menu_items')
-        .where(DatabaseConstants.isAvailable, true)
-        .count()
-        .get();
+        .select('id')
+        .eq('is_available', true);
     return (data as List).length;
   }
 
@@ -350,13 +345,12 @@ class MenuService implements IMenuService {
     }
 
     // Fetch existing menu items to check duplicates
-    final existingSnapshot = await _supabase.from('menu_items').get();
+    final existingData = await _supabase.from('menu_items').select();
     final existingNames =
-        existingdata.map((item) => data['name'] as String).toSet();
+        (existingData as List).map((item) => item['name'] as String).toSet();
 
-    // Use WriteBatch for efficient batch writes (max 500 operations)
-    // Batch operations converted to bulk insert
-    int batchCount = 0;
+    // Collect items to bulk insert
+    final List<Map<String, dynamic>> itemsToInsert = [];
 
     for (int i = 0; i < rows.length; i++) {
       try {
@@ -434,20 +428,15 @@ class MenuService implements IMenuService {
           createdAt: DateTime.now(),
         );
 
-        // Add to batch
-        // batch.set(
-          _supabase.from('menu_items').doc(menuItem.id),
-          menuItem.toMap(),
-        );
-        batchCount++;
+        // Add to bulk insert list
+        itemsToInsert.add(menuItem.toMap());
         successCount++;
         existingNames.add(name); // Prevent duplicates within same import
 
-        // Commit batch if reaching limit (500 operations)
-        if (batchCount >= 500) {
-          // Use .insert([...]) for bulk operations
-          batch = _supabase.batch();
-          batchCount = 0;
+        // Insert in batches of 500 to avoid API limits
+        if (itemsToInsert.length >= 500) {
+          await _supabase.from('menu_items').insert(itemsToInsert);
+          itemsToInsert.clear();
         }
       } catch (e) {
         failedItems.add({
@@ -457,9 +446,9 @@ class MenuService implements IMenuService {
       }
     }
 
-    // Commit remaining operations
-    if (batchCount > 0) {
-      // Use .insert([...]) for bulk operations
+    // Insert remaining items
+    if (itemsToInsert.isNotEmpty) {
+      await _supabase.from('menu_items').insert(itemsToInsert);
     }
 
     return {
