@@ -2,7 +2,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/weekly_menu.dart';
 import '../models/menu_item.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_weekly_menu_service.dart';
 
 /// Weekly Menu Service - handles all WeeklyMenu-related Firestore operations
@@ -26,13 +25,16 @@ class WeeklyMenuService implements IWeeklyMenuService {
 
     return _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.weekStartDate, weekStartDate)
-        .eq(DatabaseConstants.isPublished, true)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-      if (data.isEmpty) return null;
-      return WeeklyMenu.fromMap((data as List).first);
+        .stream(primaryKey: ['id'])
+        .map((data) {
+      // Filter by week_start_date and is_published
+      final filtered = data
+          .where((item) => 
+              item['week_start_date'] == weekStartDate && 
+              item['is_published'] == true)
+          .toList();
+      if (filtered.isEmpty) return null;
+      return WeeklyMenu.fromMap(filtered.first);
     });
   }
 
@@ -42,25 +44,25 @@ class WeeklyMenuService implements IWeeklyMenuService {
     final mondayOfWeek = _getMondayOfWeek(date);
     final weekStartDate = _formatDate(mondayOfWeek);
 
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.weekStartDate, weekStartDate)
-        .limit(1)
-        .get();
+        .select()
+        .eq('week_start_date', weekStartDate)
+        .limit(1);
 
-    if (data.isEmpty) return null;
+    if ((data as List).isEmpty) return null;
     return WeeklyMenu.fromMap((data as List).first);
   }
 
   /// Get all published weekly menus (paginated)
   @override
-  Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit = DatabaseConstants.defaultPageSize}) {
+  Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit = 50}) {
     return _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.isPublished, true)
-        .order(DatabaseConstants.weekStartDate, ascending: false)
+        .stream(primaryKey: ['id'])
+        .eq('is_published', true)
+        .order('week_start_date', ascending: false)
         .limit(limit)
-        .snapshots()
         .map((data) =>
             data.map((item) => WeeklyMenu.fromMap(item)).toList());
   }
@@ -91,8 +93,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
       );
       await _supabase
           .from('weekly_menus')
-          .doc(existing.id)
-          .update(updated.toMap());
+          .update(updated.toMap())
+          .eq('id', existing.id);
     } else {
       // Create new menu
       final weeklyMenu = WeeklyMenu(
@@ -107,8 +109,7 @@ class WeeklyMenuService implements IWeeklyMenuService {
       );
       await _supabase
           .from('weekly_menus')
-          .doc(weeklyMenu.id)
-          .set(weeklyMenu.toMap());
+          .insert(weeklyMenu.toMap());
     }
   }
 
@@ -116,9 +117,9 @@ class WeeklyMenuService implements IWeeklyMenuService {
   @override
   Future<void> unpublishWeeklyMenu(String menuId) async {
     await _supabase.from('weekly_menus').update({
-      DatabaseConstants.isPublished: false,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', menuId),
-    });
+      'is_published': false,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', menuId);
   }
 
   /// Delete a weekly menu
@@ -142,9 +143,9 @@ class WeeklyMenuService implements IWeeklyMenuService {
     if (existing != null) {
       // Update existing menu
       await _supabase.from('weekly_menus').update({
-        DatabaseConstants.menuByDay: _convertMenuByDayToMap(menuByDay).eq('id', existing.id),
-        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-      });
+        'menu_by_day': _convertMenuByDayToMap(menuByDay),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', existing.id);
     } else {
       // Create new unpublished menu (publishedAt is null for unpublished)
       final weeklyMenu = WeeklyMenu(
@@ -157,8 +158,7 @@ class WeeklyMenuService implements IWeeklyMenuService {
       );
       await _supabase
           .from('weekly_menus')
-          .doc(weeklyMenu.id)
-          .set(weeklyMenu.toMap());
+          .insert(weeklyMenu.toMap());
     }
   }
   
@@ -193,16 +193,17 @@ class WeeklyMenuService implements IWeeklyMenuService {
 
     if (itemIds.isEmpty) return [];
 
-    // Fetch menu items in batches (Firestore 'in' query limit)
+    // Fetch menu items in batches (Supabase 'in' query limit)
     final List<MenuItem> items = [];
-    for (int i = 0; i < itemIds.length; i += DatabaseConstants.inQueryLimit) {
-      final batch = itemIds.skip(i).take(DatabaseConstants.inQueryLimit).toList();
-      final snapshot = await _supabase
+    const inQueryLimit = 100; // Supabase limit for 'in' queries
+    for (int i = 0; i < itemIds.length; i += inQueryLimit) {
+      final batch = itemIds.skip(i).take(inQueryLimit).toList();
+      final data = await _supabase
           .from('menu_items')
-          .where('id', in_: batch)
-          .get();
+          .select()
+          .inFilter('id', batch);
       items.addAll(
-          data.map((item) => MenuItem.fromMap(item)).toList());
+          (data as List).map((item) => MenuItem.fromMap(item)).toList());
     }
     return items;
   }
@@ -234,31 +235,30 @@ class WeeklyMenuService implements IWeeklyMenuService {
     }
 
     // Update each menu item's availableDays field
-    final batch = _supabase.batch();
-    int batchCount = 0;
+    // Note: Supabase doesn't have batch operations like Firestore
+    // We'll use bulk update approach instead
+    final List<Map<String, dynamic>> updates = [];
 
     for (final entry in itemDaysMap.entries) {
       final itemId = entry.key;
       final days = entry.value;
       
-      final docRef = _supabase.from('menu_items').doc(itemId);
-      batch.update(docRef, {
-        DatabaseConstants.availableDays: days,
-        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
+      updates.add({
+        'id': itemId,
+        'available_days': days,
+        'updated_at': DateTime.now().toIso8601String(),
       });
       
-      batchCount++;
-      
-      // Commit batch if reaching limit (500 operations)
-      if (batchCount >= 500) {
-        // Use .insert([...]) for bulk operations
-        batchCount = 0;
+      // Update in batches of 100 to avoid API limits
+      if (updates.length >= 100) {
+        await _supabase.from('menu_items').upsert(updates);
+        updates.clear();
       }
     }
 
-    // Commit remaining operations
-    if (batchCount > 0) {
-      // Use .insert([...]) for bulk operations
+    // Update remaining items
+    if (updates.isNotEmpty) {
+      await _supabase.from('menu_items').upsert(updates);
     }
   }
 
@@ -282,10 +282,10 @@ class WeeklyMenuService implements IWeeklyMenuService {
     if (existing != null) {
       // Update existing menu (keep current published state)
       await _supabase.from('weekly_menus').update({
-        DatabaseConstants.menuByDay: _convertMenuByDayToMap(previousMenu.menuByDay).eq('id', existing.id),
-        DatabaseConstants.copiedFromWeek: previousMenu.weekStartDate,
-        DatabaseConstants.updatedAt: DateTime.now().toIso8601String(),
-      });
+        'menu_by_day': _convertMenuByDayToMap(previousMenu.menuByDay),
+        'copied_from_week': previousMenu.weekStartDate,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', existing.id);
     } else {
       // Create new UNPUBLISHED menu copy
       final weeklyMenu = WeeklyMenu(
@@ -299,35 +299,34 @@ class WeeklyMenuService implements IWeeklyMenuService {
       );
       await _supabase
           .from('weekly_menus')
-          .doc(weeklyMenu.id)
-          .set(weeklyMenu.toMap());
+          .insert(weeklyMenu.toMap());
     }
   }
 
   /// Get weekly menu history (past published menus)
   @override
   Future<List<WeeklyMenu>> getWeeklyMenuHistory({int limit = 10}) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.isPublished, true)
-        .order(DatabaseConstants.weekStartDate, ascending: false)
-        .limit(limit)
-        .get();
+        .select()
+        .eq('is_published', true)
+        .order('week_start_date', ascending: false)
+        .limit(limit);
 
-    return data
-        .map((doc) => WeeklyMenu.fromMap(item))
+    return (data as List)
+        .map((item) => WeeklyMenu.fromMap(item))
         .toList();
   }
 
   /// Stream weekly menu history
   @override
-  Stream<List<WeeklyMenu>> streamWeeklyMenuHistory({int limit = DatabaseConstants.defaultPageSize}) {
+  Stream<List<WeeklyMenu>> streamWeeklyMenuHistory({int limit = 50}) {
     return _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.isPublished, true)
-        .order(DatabaseConstants.weekStartDate, ascending: false)
+        .stream(primaryKey: ['id'])
+        .eq('is_published', true)
+        .order('week_start_date', ascending: false)
         .limit(limit)
-        .snapshots()
         .map((data) =>
             data.map((item) => WeeklyMenu.fromMap(item)).toList());
   }
@@ -335,13 +334,13 @@ class WeeklyMenuService implements IWeeklyMenuService {
   /// Get menu for a specific week by week start date string
   @override
   Future<WeeklyMenu?> getMenuForWeek(String weekStartDate) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.weekStartDate, weekStartDate)
-        .limit(1)
-        .get();
+        .select()
+        .eq('week_start_date', weekStartDate)
+        .limit(1);
 
-    if (data.isEmpty) return null;
+    if ((data as List).isEmpty) return null;
     return WeeklyMenu.fromMap((data as List).first);
   }
 
@@ -350,12 +349,12 @@ class WeeklyMenuService implements IWeeklyMenuService {
   Stream<WeeklyMenu?> streamMenuForWeek(String weekStartDate) {
     return _supabase
         .from('weekly_menus')
-        .eq(DatabaseConstants.weekStartDate, weekStartDate)
+        .stream(primaryKey: ['id'])
+        .eq('week_start_date', weekStartDate)
         .limit(1)
-        .snapshots()
-        .map((snapshot) {
+        .map((data) {
       if (data.isEmpty) return null;
-      return WeeklyMenu.fromMap((data as List).first);
+      return WeeklyMenu.fromMap(data.first);
     });
   }
 

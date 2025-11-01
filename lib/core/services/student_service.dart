@@ -5,7 +5,6 @@ import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
 import 'package:uuid/uuid.dart';
 import '../models/student.dart';
-import '../constants/database_constants.dart';
 import '../interfaces/i_student_service.dart';
 
 /// Student Service - handles all Student-related Firestore operations
@@ -32,8 +31,8 @@ class StudentService implements IStudentService {
   Stream<List<Student>> getStudents() {
     return _supabase
         .from('students')
-        .order(DatabaseConstants.lastName)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('last_name')
         .map((data) =>
             data.map((item) => Student.fromMap(item)).toList());
   }
@@ -43,9 +42,9 @@ class StudentService implements IStudentService {
   Stream<List<Student>> getStudentsByParent(String parentId) {
     return _supabase
         .from('students')
-        .eq(DatabaseConstants.parentId, parentId)
-        .order(DatabaseConstants.lastName)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('parent_id', parentId)
+        .order('last_name')
         .map((data) =>
             data.map((item) => Student.fromMap(item)).toList());
   }
@@ -65,10 +64,10 @@ class StudentService implements IStudentService {
   Stream<Student?> getStudentStream(String id) {
     return _supabase
         .from('students')
-        .doc(id)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('id', id)
         .map((data) =>
-            item != null ? Student.fromMap(snapshot.data()!) : null);
+            data.isNotEmpty ? Student.fromMap(data.first) : null);
   }
 
   /// Create a new student
@@ -95,13 +94,13 @@ class StudentService implements IStudentService {
     String lastName,
     String grade,
   ) async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('students')
-        .eq(DatabaseConstants.firstName, firstName)
-        .eq(DatabaseConstants.lastName, lastName)
-        .eq(DatabaseConstants.grade, grade)
-        .limit(1)
-        .get();
+        .select()
+        .eq('first_name', firstName)
+        .eq('last_name', lastName)
+        .eq('grade', grade)
+        .limit(1);
     
     if ((data as List).isNotEmpty) {
       return Student.fromMap((data as List).first);
@@ -115,8 +114,8 @@ class StudentService implements IStudentService {
     final updatedStudent = student.copyWith(updatedAt: DateTime.now());
     await _supabase
         .from('students')
-        .doc(student.id)
-        .update(updatedStudent.toMap());
+        .update(updatedStudent.toMap())
+        .eq('id', student.id);
   }
 
   /// Delete a student
@@ -137,9 +136,9 @@ class StudentService implements IStudentService {
   /// Assign student to parent
   Future<void> assignToParent(String studentId, String parentId) async {
     await _supabase.from('students').update({
-      DatabaseConstants.parentId: parentId,
-      DatabaseConstants.updatedAt: DateTime.now().toIso8601String().eq('id', studentId),
-    });
+      'parent_id': parentId,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', studentId);
   }
 
   /// Search students by name
@@ -147,11 +146,11 @@ class StudentService implements IStudentService {
   Stream<List<Student>> searchStudents(String query) {
     return _supabase
         .from('students')
-        .order(DatabaseConstants.firstName)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .order('first_name')
         .map((data) => data
-            .map((doc) => Student.fromMap(item))
-            .eq((student) =>
+            .map((item) => Student.fromMap(item))
+            .where((student) =>
                 student.fullName.toLowerCase().contains(query.toLowerCase()))
             .toList());
   }
@@ -161,9 +160,9 @@ class StudentService implements IStudentService {
   Stream<List<Student>> getStudentsByGrade(String grade) {
     return _supabase
         .from('students')
-        .where(DatabaseConstants.grade, grade)
-        .order(DatabaseConstants.lastName)
-        .snapshots()
+        .stream(primaryKey: ['id'])
+        .eq('grade', grade)
+        .order('last_name')
         .map((data) =>
             data.map((item) => Student.fromMap(item)).toList());
   }
@@ -171,7 +170,7 @@ class StudentService implements IStudentService {
   /// Check if student ID exists
   Future<bool> studentExists(String id) async {
     final data = await _supabase.from('students').select().eq('id', id).maybeSingle();
-    return doc.exists;
+    return data != null;
   }
 
   /// Import students from CSV
@@ -316,19 +315,18 @@ class StudentService implements IStudentService {
     final List<Map<String, dynamic>> failedItems = [];
 
     // Fetch existing students to check duplicates
-    final existingSnapshot = await _supabase.from('students').get();
-    final Set<String> existingStudents = existingdata.map((doc) {
-      final data = data;
-      final firstName = (data[DatabaseConstants.firstName] as String? ?? '').toLowerCase().trim();
-      final lastName = (data[DatabaseConstants.lastName] as String? ?? '').toLowerCase().trim();
-      final grade = (data[DatabaseConstants.grade] as String? ?? '').toLowerCase().trim();
+    final existingData = await _supabase.from('students').select();
+    final Set<String> existingStudents = (existingData as List).map((item) {
+      final firstName = (item['first_name'] as String? ?? '').toLowerCase().trim();
+      final lastName = (item['last_name'] as String? ?? '').toLowerCase().trim();
+      final grade = (item['grade'] as String? ?? '').toLowerCase().trim();
       return '$firstName|$lastName|$grade'; // Composite key
     }).toSet();
 
-    // Batch operations converted to bulk insert
-    int operationCount = 0;
+    // Collect students to bulk insert
+    final List<Map<String, dynamic>> studentsToInsert = [];
 
-    for (int i = 0; i < (data as List).length; i++) {
+    for (int i = 0; i < data.length; i++) {
       try {
         final studentData = data[i];
         
@@ -368,17 +366,14 @@ class StudentService implements IStudentService {
           createdAt: DateTime.now(),
         );
 
-        final docRef = _supabase.from('students').doc(studentId);
-        // batch.set(docRef, student.toMap());
-        operationCount++;
+        studentsToInsert.add(student.toMap());
         successCount++;
         existingStudents.add(studentKey); // Prevent duplicates within same import
 
-        // Firestore batch has a limit of 500 operations
-        if (operationCount >= 500) {
-          // Use .insert([...]) for bulk operations
-          batch = _supabase.batch();
-          operationCount = 0;
+        // Insert in batches of 500 to avoid API limits
+        if (studentsToInsert.length >= 500) {
+          await _supabase.from('students').insert(studentsToInsert);
+          studentsToInsert.clear();
         }
       } catch (e) {
         failedItems.add({
@@ -388,9 +383,9 @@ class StudentService implements IStudentService {
       }
     }
 
-    // Commit remaining operations
-    if (operationCount > 0) {
-      // Use .insert([...]) for bulk operations
+    // Insert remaining students
+    if (studentsToInsert.isNotEmpty) {
+      await _supabase.from('students').insert(studentsToInsert);
     }
 
     return {
@@ -477,17 +472,16 @@ class StudentService implements IStudentService {
 
   /// Get students count
   Future<int> getStudentsCount() async {
-    final snapshot = await _supabase.from('students').select('id');
+    final data = await _supabase.from('students').select('id');
     return (data as List).length;
   }
 
   /// Get active students count
   Future<int> getActiveStudentsCount() async {
-    final snapshot = await _supabase
+    final data = await _supabase
         .from('students')
-        .eq(DatabaseConstants.isActive, true)
-        .count()
-        .get();
+        .select('id')
+        .eq('is_active', true);
     return (data as List).length;
   }
 }
