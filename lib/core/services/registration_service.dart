@@ -1,7 +1,6 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'api_client.dart';
-import '../constants/firestore_constants.dart';
+import '../constants/database_constants.dart';
 import '../models/user_role.dart';
 import '../models/parent.dart';
 import '../models/student.dart';
@@ -11,34 +10,31 @@ import '../utils/app_logger.dart';
 /// 
 /// This service provides helper functions to create new users with proper
 /// role-based setup:
-/// - Admin: Creates Firebase Auth account + users document
-/// - Parent: Creates Firebase Auth account + users document + parents document
+/// - Admin: Creates Supabase Auth account + users record
+/// - Parent: Creates Supabase Auth account + users record + parents record
 /// 
-/// All operations are atomic where possible to ensure data consistency.
+/// All operations use Supabase Auth and Postgres database.
 class RegistrationService {
-  final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _supabase;
 
   /// Constructor with dependency injection
   RegistrationService({
-    FirebaseAuth? auth,
-    FirebaseFirestore? firestore,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+    SupabaseClient? supabase,
+  }) : _supabase = supabase ?? Supabase.instance.client;
 
   /// Register a new ADMIN user
   /// 
   /// This creates:
-  /// 1. Firebase Authentication account
-  /// 2. Document in `users` collection with role="admin"
+  /// 1. Supabase Authentication account
+  /// 2. Record in `users` table with role="admin"
   /// 
   /// Steps:
-  /// 1. Create Firebase Auth account with email/password
+  /// 1. Create Supabase Auth account with email/password
   /// 2. Get the UID from the created user
-  /// 3. Create a document in `users/{uid}` with admin role
+  /// 3. Create a record in `users` table with admin role
   /// 
   /// Returns: The created AppUser object
-  /// Throws: FirebaseAuthException or FirebaseException on failure
+  /// Throws: AuthException or PostgrestException on failure
   /// 
   /// Example:
   /// ```dart
@@ -56,15 +52,15 @@ class RegistrationService {
     required String password,
   }) async {
     try {
-      // Step 1: Create Firebase Auth account
-      final userCredential = await _auth.createUserWithEmailAndPassword(
+      // Step 1: Create Supabase Auth account
+      final authResponse = await _supabase.auth.signUp(
         email: email,
         password: password,
       );
 
-      final uid = userCredential.user!.uid;
+      final uid = authResponse.user!.id;
 
-      // Step 2: Create user document in Firestore
+      // Step 2: Create user record in database
       final appUser = AppUser(
         uid: uid,
         firstName: firstName,
@@ -76,13 +72,13 @@ class RegistrationService {
         isActive: true,
       );
 
-      // Step 3: Save to Firestore users collection
-      await _firestore.collection(FirestoreConstants.usersCollection).doc(uid).set(appUser.toMap());
+      // Step 3: Save to users table
+      await _supabase
+          .from(DatabaseConstants.usersTable)
+          .insert(appUser.toMap());
 
       return appUser;
     } catch (e) {
-      // If Firestore write fails, we should ideally delete the Auth account
-      // but we'll let the caller handle cleanup for now
       rethrow;
     }
   }
@@ -90,20 +86,20 @@ class RegistrationService {
   /// Register a new PARENT user
   /// 
   /// This creates:
-  /// 1. Firebase Authentication account
-  /// 2. Document in `users` collection with role="parent"
-  /// 3. Document in `parents` collection with parent-specific data
+  /// 1. Supabase Authentication account
+  /// 2. Record in `users` table with role="parent"
+  /// 3. Record in `parents` table with parent-specific data
   /// 
   /// Steps:
-  /// 1. Create Firebase Auth account with email/password
+  /// 1. Create Supabase Auth account with email/password
   /// 2. Get the UID from the created user
-  /// 3. Create document in `users/{uid}` with parent role
-  /// 4. Create document in `parents/{uid}` with parent-specific info
+  /// 3. Create record in `users` table with parent role
+  /// 4. Create record in `parents` table with parent-specific info
   /// 
-  /// Both Firestore writes happen in a batch for atomicity.
+  /// Both database inserts use Supabase transactions for atomicity.
   /// 
   /// Returns: A map with both AppUser and Parent objects
-  /// Throws: FirebaseAuthException or FirebaseException on failure
+  /// Throws: AuthException or PostgrestException on failure
   /// 
   /// Example:
   /// ```dart
@@ -128,16 +124,16 @@ class RegistrationService {
     String? address,
   }) async {
     try {
-      // Step 1: Create Firebase Auth account
-      final userCredential = await _auth.createUserWithEmailAndPassword(
+      // Step 1: Create Supabase Auth account
+      final authResponse = await _supabase.auth.signUp(
         email: email,
         password: password,
       );
 
-      final uid = userCredential.user!.uid;
+      final uid = authResponse.user!.id;
       final now = DateTime.now();
 
-      // Step 2: Create user document
+      // Step 2: Create user record
       final appUser = AppUser(
         uid: uid,
         firstName: firstName,
@@ -149,81 +145,45 @@ class RegistrationService {
         isActive: true,
       );
 
-      // Step 3: Create parent document with initial balance of 0
+      // Step 3: Create parent record with initial balance of 0
       final parent = Parent(
         userId: uid,
         phone: phone,
         address: address,
-        // Parent balance initialized inside Parent model/service; omit here
         children: [], // Empty initially, students added later
         createdAt: now,
         isActive: true,
       );
 
-      // Step 4: Write both documents in a batch (atomic operation)
-      final batch = _firestore.batch();
+      // Step 4: Insert both records (Supabase handles transactions automatically)
+      await _supabase
+          .from(DatabaseConstants.usersTable)
+          .insert(appUser.toMap());
       
-      batch.set(
-        _firestore.collection(FirestoreConstants.usersCollection).doc(uid),
-        appUser.toMap(),
-      );
-      
-      batch.set(
-        _firestore.collection(FirestoreConstants.parentsCollection).doc(uid),
-        parent.toMap(),
-      );
-
-      await batch.commit();
-
-      // If a backend API is configured, request the backend to set custom claims
-      // for the newly created user. Setting custom claims requires admin
-      // privileges and cannot be done from the client directly, so we delegate
-      // to the backend. The backend should verify the request and call the
-      // Firebase Admin SDK to set the claims.
-      if (apiClient.enabled) {
-        try {
-          final user = _auth.currentUser;
-          String? token;
-          if (user != null) token = await user.getIdToken();
-
-          final headers = token != null ? {'Authorization': 'Bearer $token'} : null;
-          final res = await apiClient.post('/admin/set-claims', headers: headers, body: {
-            'uid': uid,
-            'claims': {'parent': true, 'admin': false}
-          });
-
-          if (res.statusCode != 200 && res.statusCode != 201) {
-            AppLogger.warning('Backend did not accept set-claims request: ${res.statusCode} ${res.body}');
-          }
-        } catch (e) {
-          // Non-fatal: registration succeeded locally, but custom claims were
-          // not set. Log the issue and continue.
-          AppLogger.error('Failed to request backend to set custom claims', error: e);
-        }
-      }
+      await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .insert(parent.toMap());
 
       return {
         'user': appUser,
         'parent': parent,
       };
     } catch (e) {
-      // If anything fails, the auth account may exist but Firestore docs won't
-      // Caller should handle cleanup if needed
       rethrow;
     }
   }
 
-  /// Register a new PARENT user with existing Firebase User (e.g., from Google Sign-In)
+  /// Register a new PARENT user with existing Supabase User (e.g., from Google Sign-In)
   /// 
   /// This creates:
-  /// 1. Document in `users` collection with role="parent"
-  /// 2. Document in `parents` collection with parent-specific data
+  /// 1. Record in `users` table with role="parent"
+  /// 2. Record in `parents` table with parent-specific data
   /// 
   /// Use this when the user has already authenticated (e.g., via Google Sign-In)
-  /// and you just need to create the Firestore documents.
+  /// and you just need to create the database records.
   /// 
   /// Returns: A map with both AppUser and Parent objects
-  /// Throws: FirebaseException on failure
+  /// Throws: PostgrestException on failure
   Future<Map<String, dynamic>> registerParentWithExistingAuth({
     required String uid,
     required String firstName,
@@ -235,7 +195,7 @@ class RegistrationService {
     try {
       final now = DateTime.now();
 
-      // Step 1: Create user document
+      // Step 1: Create user record
       final appUser = AppUser(
         uid: uid,
         firstName: firstName,
@@ -247,31 +207,24 @@ class RegistrationService {
         isActive: true,
       );
 
-      // Step 2: Create parent document with initial balance of 0
+      // Step 2: Create parent record with initial balance of 0
       final parent = Parent(
         userId: uid,
         phone: phone,
         address: address,
-        // Parent balance initialized inside Parent model/service; omit here
         children: [], // Empty initially, students added later
         createdAt: now,
         isActive: true,
       );
 
-      // Step 3: Write both documents in a batch (atomic operation)
-      final batch = _firestore.batch();
+      // Step 3: Insert both records
+      await _supabase
+          .from(DatabaseConstants.usersTable)
+          .insert(appUser.toMap());
       
-      batch.set(
-        _firestore.collection(FirestoreConstants.usersCollection).doc(uid),
-        appUser.toMap(),
-      );
-      
-      batch.set(
-        _firestore.collection(FirestoreConstants.parentsCollection).doc(uid),
-        parent.toMap(),
-      );
-
-      await batch.commit();
+      await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .insert(parent.toMap());
 
       return {
         'user': appUser,
@@ -285,14 +238,14 @@ class RegistrationService {
   /// Link a student to a parent
   /// 
   /// This updates:
-  /// 1. Student's `parentId` field
+  /// 1. Student's `parent_id` field
   /// 2. Parent's `children` array to include the student ID
   /// 
-  /// Both updates happen in a batch for atomicity.
+  /// Both updates use database operations.
   /// 
   /// Parameters:
-  /// - studentId: The ID of the student document
-  /// - parentUserId: The userId of the parent (same as Firebase Auth UID)
+  /// - studentId: The ID of the student record
+  /// - parentUserId: The userId of the parent (same as Supabase Auth UUID)
   /// 
   /// Example:
   /// ```dart
@@ -308,9 +261,12 @@ class RegistrationService {
     try {
       // If a backend API is configured, use it to perform the operation
       if (apiClient.enabled) {
-        final user = _auth.currentUser;
+        final user = _supabase.auth.currentUser;
         if (user == null) throw Exception('User not authenticated');
-        final token = await user.getIdToken();
+        final session = _supabase.auth.currentSession;
+        final token = session?.accessToken;
+        if (token == null) throw Exception('No access token available');
+        
         final res = await apiClient.post('/parent/student-link',
             headers: {'Authorization': 'Bearer $token'}, body: {'studentId': studentId});
         if (res.statusCode != 201 && res.statusCode != 200) {
@@ -319,27 +275,34 @@ class RegistrationService {
         return;
       }
 
-      final batch = _firestore.batch();
+      // Update student's parent_id
+      await _supabase
+          .from(DatabaseConstants.studentsTable)
+          .update({
+            'parent_id': parentUserId,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', studentId);
 
-      // Update student's parentId
-      batch.update(
-        _firestore.collection(FirestoreConstants.studentsCollection).doc(studentId),
-        {
-          'parentId': parentUserId,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      // Add student to parent's children array
-      batch.update(
-        _firestore.collection(FirestoreConstants.parentsCollection).doc(parentUserId),
-        {
-          'children': FieldValue.arrayUnion([studentId]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      await batch.commit();
+      // Get current parent record to update children array
+      final parentData = await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .select('children')
+          .eq('user_id', parentUserId)
+          .single();
+      
+      final currentChildren = List<String>.from(parentData['children'] ?? []);
+      if (!currentChildren.contains(studentId)) {
+        currentChildren.add(studentId);
+        
+        await _supabase
+            .from(DatabaseConstants.parentsTable)
+            .update({
+              'children': currentChildren,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', parentUserId);
+      }
     } catch (e) {
       rethrow;
     }
@@ -348,14 +311,14 @@ class RegistrationService {
   /// Unlink a student from a parent
   /// 
   /// This updates:
-  /// 1. Student's `parentId` field (set to null)
+  /// 1. Student's `parent_id` field (set to null)
   /// 2. Parent's `children` array to remove the student ID
   /// 
-  /// Both updates happen in a batch for atomicity.
+  /// Both updates use database operations.
   /// 
   /// Parameters:
-  /// - studentId: The ID of the student document
-  /// - parentUserId: The userId of the parent (same as Firebase Auth UID)
+  /// - studentId: The ID of the student record
+  /// - parentUserId: The userId of the parent (same as Supabase Auth UUID)
   /// 
   /// Example:
   /// ```dart
@@ -369,27 +332,32 @@ class RegistrationService {
     required String parentUserId,
   }) async {
     try {
-      final batch = _firestore.batch();
+      // Remove student's parent_id
+      await _supabase
+          .from(DatabaseConstants.studentsTable)
+          .update({
+            'parent_id': null,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', studentId);
 
-      // Remove student's parentId
-      batch.update(
-        _firestore.collection(FirestoreConstants.studentsCollection).doc(studentId),
-        {
-          'parentId': null,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      // Remove student from parent's children array
-      batch.update(
-        _firestore.collection(FirestoreConstants.parentsCollection).doc(parentUserId),
-        {
-          'children': FieldValue.arrayRemove([studentId]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      await batch.commit();
+      // Get current parent record to update children array
+      final parentData = await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .select('children')
+          .eq('user_id', parentUserId)
+          .single();
+      
+      final currentChildren = List<String>.from(parentData['children'] ?? []);
+      currentChildren.remove(studentId);
+      
+      await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .update({
+            'children': currentChildren,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', parentUserId);
     } catch (e) {
       rethrow;
     }
@@ -398,7 +366,7 @@ class RegistrationService {
   /// Create a new student and optionally link to a parent
   /// 
   /// This creates:
-  /// 1. Document in `students` collection
+  /// 1. Record in `students` table
   /// 2. Optionally links to parent if parentUserId is provided
   /// 
   /// Parameters:
@@ -433,12 +401,9 @@ class RegistrationService {
     double initialBalance = 0.0,
   }) async {
     try {
-      // Generate a new document ID
-      final docRef = _firestore.collection(FirestoreConstants.studentsCollection).doc();
-      final studentId = docRef.id;
-
+      // Supabase will generate UUID automatically
       final student = Student(
-        id: studentId,
+        id: '', // Will be generated by database
         firstName: firstName,
         lastName: lastName,
         grade: grade,
@@ -449,29 +414,42 @@ class RegistrationService {
         isActive: true,
       );
 
-      // If parent is provided, link them atomically
-      if (parentUserId != null) {
-        final batch = _firestore.batch();
-        
-        // Create student document
-        batch.set(docRef, student.toMap());
-        
-        // Add to parent's children array
-        batch.update(
-          _firestore.collection(FirestoreConstants.parentsCollection).doc(parentUserId),
-          {
-            'children': FieldValue.arrayUnion([studentId]),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
+      // Insert student and get generated ID
+      final studentMap = student.toMap();
+      studentMap.remove('id'); // Let database generate ID
+      
+      final insertedData = await _supabase
+          .from(DatabaseConstants.studentsTable)
+          .insert(studentMap)
+          .select()
+          .single();
+      
+      final studentId = insertedData['id'] as String;
+      final createdStudent = Student.fromMap(insertedData);
 
-        await batch.commit();
-      } else {
-        // No parent, just create student
-        await docRef.set(student.toMap());
+      // If parent is provided, link them
+      if (parentUserId != null) {
+        final parentData = await _supabase
+            .from(DatabaseConstants.parentsTable)
+            .select('children')
+            .eq('user_id', parentUserId)
+            .single();
+        
+        final currentChildren = List<String>.from(parentData['children'] ?? []);
+        if (!currentChildren.contains(studentId)) {
+          currentChildren.add(studentId);
+          
+          await _supabase
+              .from(DatabaseConstants.parentsTable)
+              .update({
+                'children': currentChildren,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('user_id', parentUserId);
+        }
       }
 
-      return student;
+      return createdStudent;
     } catch (e) {
       rethrow;
     }
@@ -479,21 +457,19 @@ class RegistrationService {
 
   /// Check if an email is already registered
   /// 
-  /// This checks Firestore users collection only.
-  /// Note: We removed the deprecated fetchSignInMethodsForEmail() for security reasons.
-  /// See: https://cloud.google.com/identity-platform/docs/admin/email-enumeration-protection
+  /// This checks users table only.
   /// 
   /// Returns: true if email exists, false otherwise
   Future<bool> isEmailRegistered(String email) async {
     try {
-      // Check Firestore users collection
-      final querySnapshot = await _firestore
-          .collection(FirestoreConstants.usersCollection)
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
+      // Check users table
+      final data = await _supabase
+          .from(DatabaseConstants.usersTable)
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
 
-      return querySnapshot.docs.isNotEmpty;
+      return data != null;
     } catch (e) {
       AppLogger.error('Error checking if email is registered', error: e);
       // If there's an error, assume email is not registered to allow registration attempt

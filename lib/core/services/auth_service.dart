@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -8,93 +8,58 @@ import 'user_service.dart';
 import 'registration_service.dart';
 import '../utils/app_logger.dart';
 
-/// Authentication Service - handles user authentication with Firebase Auth
+/// Authentication Service - handles user authentication with Supabase Auth
 class AuthService implements IAuthService {
-  final FirebaseAuth _auth;
+  final SupabaseClient _supabase;
   final GoogleSignIn _googleSignIn;
   final UserService _userService;
   final RegistrationService _registrationService;
 
   /// Constructor with dependency injection
   /// 
-  /// [auth] - Optional FirebaseAuth instance for testing
+  /// [supabase] - Optional SupabaseClient instance for testing
   /// [googleSignIn] - Optional GoogleSignIn instance for testing
   /// [userService] - Optional UserService instance for testing
   /// [registrationService] - Required RegistrationService for post-sign-in provisioning
   AuthService({
-    FirebaseAuth? auth,
+    SupabaseClient? supabase,
     GoogleSignIn? googleSignIn,
     UserService? userService,
     required RegistrationService registrationService,
-  })  : _auth = auth ?? FirebaseAuth.instance,
+  })  : _supabase = supabase ?? Supabase.instance.client,
         _googleSignIn = googleSignIn ?? GoogleSignIn(
           serverClientId: dotenv.env['GOOGLE_CLIENT_ID'],
         ),
         _userService = userService ?? UserService(),
         _registrationService = registrationService;
 
-  /// Get user's email from User object, checking providerData if needed.
-  /// This is necessary on Android where user.email may be null after Google Sign-In.
-  /// The email is available in user.providerData[0].email instead.
+  /// Get user's email from Supabase User object
   static String? getUserEmail(User? user) {
-    if (user == null) return null;
-    
-    // Try user.email first
-    if (user.email != null && user.email!.isNotEmpty) {
-      return user.email;
-    }
-    
-    // Fallback to providerData (for Android Google Sign-In)
-    if (user.providerData.isNotEmpty) {
-      final providerEmail = user.providerData.first.email;
-      if (providerEmail != null && providerEmail.isNotEmpty) {
-        return providerEmail;
-      }
-    }
-    
-    return null;
+    return user?.email;
   }
 
-  /// Get user's display name from User object, checking providerData if needed.
-  /// Similar to getUserEmail, display name may need to be extracted from providerData.
+  /// Get user's display name from Supabase User object
   static String? getUserDisplayName(User? user) {
-    if (user == null) return null;
-    
-    if (user.displayName != null && user.displayName!.isNotEmpty) {
-      return user.displayName;
-    }
-    
-    if (user.providerData.isNotEmpty) {
-      return user.providerData.first.displayName;
-    }
-    
-    return null;
+    return user?.userMetadata?['full_name'] ?? user?.userMetadata?['name'];
   }
 
   /// Get current user
   @override
-  User? get currentUser => _auth.currentUser;
+  User? get currentUser => _supabase.auth.currentUser;
 
   /// Auth state changes stream
   @override
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  Stream<User?> get authStateChanges => _supabase.auth.onAuthStateChange.map((state) => state.session?.user);
 
-  /// Get current user's role from Firestore
+  /// Get current user's role from database
   @override
   Future<UserRole?> getCurrentUserRole() async {
     final user = currentUser;
     if (user == null) return null;
     
     try {
-      // Try to get from custom claims first (faster)
-      final idTokenResult = await user.getIdTokenResult();
-      final adminClaim = idTokenResult.claims?['admin'];
-      if (adminClaim == true) {
-        return UserRole.admin;
-      }
-      
-      // Fall back to Firestore
-      return await _userService.getUserRole(user.uid);
+      // Get role from database (Supabase doesn't have custom claims like Firebase)
+      return await _userService.getUserRole(user.id);
     } catch (e) {
       rethrow;
     }
@@ -124,17 +89,17 @@ class AuthService implements IAuthService {
     final user = currentUser;
     if (user == null) return null;
     
-    return await _userService.getUser(user.uid);
+    return await _userService.getUser(user.id);
   }
 
   /// Sign in with email and password
   @override
-  Future<UserCredential> signInWithEmailAndPassword(
+  Future<AuthResponse> signInWithEmailAndPassword(
     String email,
     String password,
   ) async {
     try {
-      return await _auth.signInWithEmailAndPassword(
+      return await _supabase.auth.signInWithPassword(
         email: email,
         password: password,
       );
@@ -144,112 +109,89 @@ class AuthService implements IAuthService {
   }
 
   /// Sign in with Google
-  /// Uses Firebase Auth popup on web (recommended) and GoogleSignIn on mobile
+  /// Uses Supabase OAuth on both web and mobile
   @override
-  Future<UserCredential> signInWithGoogle() async {
+  Future<bool> signInWithGoogle() async {
     try {
       AppLogger.debug('signInWithGoogle(): start');
-  UserCredential userCredential;
-  String effectiveEmail = '';
+      
       if (kIsWeb) {
-        AppLogger.debug('signInWithGoogle(): using web popup flow');
-        // Web: Use Firebase Auth popup (recommended for web)
-        // This avoids the deprecated google_sign_in web implementation
-        final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        AppLogger.debug('signInWithGoogle(): using web OAuth flow');
+        // Web: Use Supabase OAuth
+        await _supabase.auth.signInWithOAuth(
+          Provider.google,
+          redirectTo: kIsWeb ? null : 'io.supabase.canteenapp://login-callback/',
+        );
         
-        // Optional: Add scopes if needed
-        googleProvider.addScope('email');
-        googleProvider.addScope('profile');
-        
-        // Use popup instead of redirect for better UX
-        userCredential = await _auth.signInWithPopup(googleProvider);
-        AppLogger.info('signInWithGoogle(): web popup returned user uid=${userCredential.user?.uid} email=${userCredential.user?.email}');
-        // Set effectiveEmail for downstream use (web)
-        final webUser = userCredential.user;
-        effectiveEmail = webUser?.email ??
-            (webUser?.providerData.isNotEmpty == true ? webUser!.providerData.first.email ?? '' : '');
+        // For web, the browser handles the redirect, so we return true
+        return true;
       } else {
-        // Mobile: Use google_sign_in package (works well on mobile)
+        // Mobile: Use google_sign_in package for better UX
         AppLogger.debug('signInWithGoogle(): calling GoogleSignIn.signIn()');
-        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+        final googleUser = await _googleSignIn.signIn();
         AppLogger.debug('signInWithGoogle(): GoogleSignIn.signIn() returned: $googleUser');
         
         if (googleUser == null) {
-          AppLogger.info('signInWithGoogle(): user cancelled Google sign-in (googleUser==null)');
+          AppLogger.info('signInWithGoogle(): user cancelled Google sign-in');
           throw Exception('Google sign-in was cancelled');
         }
 
-        // Obtain the auth details from the request
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        // Get auth details
+        final googleAuth = await googleUser.authentication;
+        final accessToken = googleAuth.accessToken;
+        final idToken = googleAuth.idToken;
 
-        // Create a new credential
-        final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
+        if (accessToken == null) {
+          throw Exception('No access token found.');
+        }
+        if (idToken == null) {
+          throw Exception('No ID token found.');
+        }
+
+        // Sign in to Supabase with Google credentials
+        final response = await _supabase.auth.signInWithIdToken(
+          provider: OAuthProvider.google,
+          idToken: idToken,
+          accessToken: accessToken,
         );
 
-        // Sign in to Firebase with the Google credential
-        userCredential = await _auth.signInWithCredential(credential);
-        AppLogger.info('signInWithGoogle(): firebase signInWithCredential returned uid=${userCredential.user?.uid} email=${userCredential.user?.email}');
+        AppLogger.info('signInWithGoogle(): Supabase signInWithIdToken returned user id=${response.user?.id}');
 
-        // Force reload to populate email if available from backend
-        final firebaseUser = userCredential.user ?? _auth.currentUser;
-        if (firebaseUser != null) {
-          await firebaseUser.reload();
-          AppLogger.info('signInWithGoogle(): after reload, uid=${firebaseUser.uid} email=${firebaseUser.email}');
-        }
+        // Post sign-in: ensure database 'users' and 'parents' records exist
+        try {
+          final user = response.user;
+          if (user != null) {
+            final existingUser = await _userService.getUser(user.id);
+            if (existingUser == null) {
+              // Create parent and user records
+              final fullName = user.userMetadata?['full_name'] ?? user.userMetadata?['name'] ?? 'Google User';
+              final nameParts = fullName.split(' ');
+              final firstName = nameParts.first;
+              final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+              final email = user.email ?? '';
 
-        // Log provider data for diagnostics
-        AppLogger.debug('GoogleSignIn providerData: ${firebaseUser?.providerData}');
-
-        // Extract email safely (prioritize user.email post-reload, fallback to providerData)
-        final effectiveEmailLocal = firebaseUser?.email ??
-            (firebaseUser?.providerData.isNotEmpty == true ? firebaseUser!.providerData.first.email : null) ??
-            '';
-        AppLogger.info('Effective email for downstream use: $effectiveEmailLocal');
-        effectiveEmail = effectiveEmailLocal;
-      }
-
-      // Post sign-in: ensure Firestore 'users' and 'parents' documents exist for parent users
-      try {
-        final firebaseUser = userCredential.user ?? _auth.currentUser;
-        if (firebaseUser != null) {
-          final existingUser = await _userService.getUser(firebaseUser.uid);
-          if (existingUser == null) {
-            // Create parent document and user document using RegistrationService
-            final displayName = firebaseUser.displayName ??
-                (firebaseUser.providerData.isNotEmpty ? firebaseUser.providerData.first.displayName : null) ??
-                'Google User';
-            final nameParts = displayName.split(' ');
-            final firstName = nameParts.first;
-            final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
-
-      // Use effectiveEmail determined after sign-in/reload
-      final providerEmail = effectiveEmail;
-
-            try {
-              // Best-effort create parent and users docs. If this fails, do not
-              // block the sign-in flow; log the error for diagnostics.
-              await _registrationService.registerParentWithExistingAuth(
-                uid: firebaseUser.uid,
-                firstName: firstName,
-                lastName: lastName,
-                email: providerEmail,
-                phone: firebaseUser.phoneNumber,
-                address: null,
-              );
-              AppLogger.info('Created missing user/parent documents for uid=${firebaseUser.uid}');
-            } catch (regErr) {
-              AppLogger.warning('Failed to create user/parent documents for uid=${firebaseUser.uid}: $regErr');
+              try {
+                await _registrationService.registerParentWithExistingAuth(
+                  uid: user.id,
+                  firstName: firstName,
+                  lastName: lastName,
+                  email: email,
+                  phone: user.phone,
+                  address: null,
+                );
+                AppLogger.info('Created missing user/parent documents for id=${user.id}');
+              } catch (regErr) {
+                AppLogger.warning('Failed to create user/parent documents for id=${user.id}: $regErr');
+              }
             }
           }
+        } catch (e) {
+          AppLogger.warning('Post sign-in database check/create failed: $e');
         }
-      } catch (e) {
-  AppLogger.warning('Post sign-in Firestore check/create failed: $e');
-      }
 
-      AppLogger.debug('signInWithGoogle(): returning userCredential');
-      return userCredential;
+        AppLogger.debug('signInWithGoogle(): returning success');
+        return true;
+      }
     } catch (e) {
       AppLogger.error('signInWithGoogle(): error: $e', error: e);
       rethrow;
@@ -259,14 +201,14 @@ class AuthService implements IAuthService {
   /// Sign out
   @override
   Future<void> signOut() async {
-    await _auth.signOut();
+    await _supabase.auth.signOut();
     await _googleSignIn.signOut();
   }
 
   /// Reset password
   @override
   Future<void> sendPasswordResetEmail(String email) async {
-    await _auth.sendPasswordResetEmail(email: email);
+    await _supabase.auth.resetPasswordForEmail(email);
   }
 
   /// Reset password (legacy method - kept for backward compatibility)
@@ -275,12 +217,12 @@ class AuthService implements IAuthService {
   }
 
   /// Create user with email and password (for admin registration)
-  Future<UserCredential> createUserWithEmailAndPassword(
+  Future<AuthResponse> createUserWithEmailAndPassword(
     String email,
     String password,
   ) async {
     try {
-      return await _auth.createUserWithEmailAndPassword(
+      return await _supabase.auth.signUp(
         email: email,
         password: password,
       );
@@ -290,27 +232,38 @@ class AuthService implements IAuthService {
   }
 
   /// Update user email
-  Future<void> updateEmail(String newEmail) async {
-    await currentUser?.verifyBeforeUpdateEmail(newEmail);
+  Future<UserResponse> updateEmail(String newEmail) async {
+    return await _supabase.auth.updateUser(
+      UserAttributes(email: newEmail),
+    );
   }
 
   /// Update user password
   @override
-  Future<void> updatePassword(String newPassword) async {
-    await currentUser?.updatePassword(newPassword);
+  Future<UserResponse> updatePassword(String newPassword) async {
+    return await _supabase.auth.updateUser(
+      UserAttributes(password: newPassword),
+    );
   }
 
   /// Send email verification
   Future<void> sendEmailVerification() async {
-    await currentUser?.sendEmailVerification();
+    // Supabase handles email verification automatically during signup
+    // This method is kept for interface compatibility
+    AppLogger.warning('sendEmailVerification() called - Supabase handles this automatically');
   }
 
   /// Check if email is verified
-  bool get isEmailVerified => currentUser?.emailVerified ?? false;
+  bool get isEmailVerified {
+    final user = currentUser;
+    return user?.emailConfirmedAt != null;
+  }
 
   /// Reload current user
   Future<void> reloadUser() async {
-    await currentUser?.reload();
+    // Supabase automatically keeps user data fresh
+    // This method is kept for interface compatibility
+    await _supabase.auth.refreshSession();
   }
 
   /// Reauthenticate with password (required before sensitive operations)
@@ -321,12 +274,16 @@ class AuthService implements IAuthService {
       throw Exception('No user is currently signed in');
     }
 
-    final credential = EmailAuthProvider.credential(
-      email: user.email!,
-      password: password,
-    );
-
-    await user.reauthenticateWithCredential(credential);
+    // Supabase doesn't have a direct reauthentication method
+    // We need to sign in again to verify the password
+    try {
+      await _supabase.auth.signInWithPassword(
+        email: user.email!,
+        password: password,
+      );
+    } catch (e) {
+      throw Exception('Reauthentication failed: $e');
+    }
   }
 
   /// Delete current user account
@@ -337,11 +294,15 @@ class AuthService implements IAuthService {
       throw Exception('No user is currently signed in');
     }
 
-    // Delete user document from Firestore first
-    final userId = user.uid;
+    // Delete user document from database first
+    final userId = user.id;
     await _userService.deleteUser(userId);
 
-    // Then delete the Firebase Auth account
-    await user.delete();
+    // Supabase Admin API is needed to delete auth users
+    // This should be done via an Edge Function with proper authorization
+    // For now, we'll just sign out the user
+    // TODO: Implement proper user deletion via Edge Function
+    await signOut();
+    AppLogger.warning('User data deleted, but auth account requires admin API to delete');
   }
 }

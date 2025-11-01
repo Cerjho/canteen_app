@@ -61,7 +61,7 @@ Follow the guide in `SUPABASE_MIGRATION_GUIDE.md`:
 1. **Auth Service** (Step 3) - ~1 hour
    - Replace Firebase Auth with Supabase Auth
    - Update sign in, sign up, Google OAuth flows
-   
+
 2. **User Service** (Step 4) - ~30 minutes
    - Replace Firestore queries with Postgres
    - Update CRUD operations
@@ -82,6 +82,7 @@ Follow the guide in `SUPABASE_MIGRATION_GUIDE.md`:
 ### Step 3: Update Models (Step 7) - ~1-2 hours
 
 Remove Firebase Timestamp from all 9 model files:
+
 - cart_item.dart
 - menu_item.dart  
 - order.dart
@@ -104,6 +105,7 @@ Then update table and column names for Postgres.
 ### Step 5: Update UI Screens (Step 10) - ~2-3 hours
 
 Replace Firestore streams with Supabase streams in:
+
 - wallet_screen.dart
 - transactions_screen.dart
 - cart_screen.dart
@@ -165,6 +167,7 @@ Fix compile errors and test all flows.
 ## 🛠️ Technical Architecture
 
 ### Before (Firebase)
+
 ```
 Flutter App
 ├── FirebaseAuth (Authentication)
@@ -175,6 +178,7 @@ Flutter App
 ```
 
 ### After (Supabase)
+
 ```
 Flutter App
 ├── Supabase Auth (Authentication)
@@ -305,11 +309,12 @@ https://rfossylqbksvffksutox.supabase.co/functions/v1/
 
 ---
 
-## 🎉 You're 25% Done!
+## 🎉 You're 25% Done
 
 The hard infrastructure work is complete. Now it's systematic code refactoring following the patterns in the guide. Each service follows the same pattern:
 
 **Old (Firebase):**
+
 ```dart
 final snapshot = await _firestore
     .collection('users')
@@ -318,6 +323,7 @@ final snapshot = await _firestore
 ```
 
 **New (Supabase):**
+
 ```dart
 final response = await _supabase
     .from('users')
@@ -326,7 +332,7 @@ final response = await _supabase
     .single();
 ```
 
-**Good luck with the migration! You've got this! 🚀**
+Good luck with the migration! You've got this! 🚀
 
 ---
 

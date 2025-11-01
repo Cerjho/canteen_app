@@ -45,6 +45,7 @@ root/
   ```bash
   npm install @supabase/supabase-js
   ```
+
 * In Flutter:
 
   ```dart
@@ -55,6 +56,7 @@ root/
     anonKey: 'YOUR_SUPABASE_ANON_KEY',
   );
   ```
+
 * Use `user_metadata` for roles instead of Firebase custom claims:
 
   ```ts
@@ -102,6 +104,7 @@ supabase functions serve order_confirmation
   | `orders`             | `orders`       |
   | `menus`              | `menus`        |
   | `students`           | `students`     |
+
 * Add RLS (Row Level Security) policies to replace Firestore rules.
 
 Example policy (students can only access their data):
@@ -136,13 +139,12 @@ const { data, error } = await supabase.storage
   ```bash
   npm uninstall firebase wrangler
   ```
+
 * [ ] Commit and update environment variables:
 
-  ```
   SUPABASE_URL=
   SUPABASE_ANON_KEY=
   SUPABASE_SERVICE_ROLE_KEY=
-  ```
 
 ---
 
@@ -159,50 +161,62 @@ const { data, error } = await supabase.storage
 ## 📋 **Detailed Migration Checklist**
 
 ### Phase 1: Setup Supabase Project
-- [ ] Create Supabase account (free tier, no credit card)
-- [ ] Create new project at https://supabase.com/dashboard
-- [ ] Install Supabase CLI: `npm install -g supabase`
-- [ ] Initialize local project: `supabase init`
-- [ ] Link to remote: `supabase link --project-ref YOUR_PROJECT_REF`
+
+* [ ] Create Supabase account (free tier, no credit card)
+
+* [ ] Create new project at <https://supabase.com/dashboard>
+* [ ] Install Supabase CLI: `npm install -g supabase`
+* [ ] Initialize local project: `supabase init`
+* [ ] Link to remote: `supabase link --project-ref YOUR_PROJECT_REF`
 
 ### Phase 2: Migrate Edge Functions
-- [x] Create `/supabase/functions/` structure
-- [ ] Migrate `order_confirmation_worker.js` → `order_confirmation/index.ts`
-- [ ] Migrate `paymongo_worker.js` → `paymongo_webhook/index.ts`
-- [ ] Migrate `worker.js` (Stripe) → `stripe_webhook/index.ts`
-- [ ] Migrate `set_custom_claims.js` → `set_user_role/index.ts`
-- [ ] Set secrets: `supabase secrets set KEY=value`
-- [ ] Deploy functions: `supabase functions deploy`
+
+* [x] Create `/supabase/functions/` structure
+
+* [ ] Migrate `order_confirmation_worker.js` → `order_confirmation/index.ts`
+* [ ] Migrate `paymongo_worker.js` → `paymongo_webhook/index.ts`
+* [ ] Migrate `worker.js` (Stripe) → `stripe_webhook/index.ts`
+* [ ] Migrate `set_custom_claims.js` → `set_user_role/index.ts`
+* [ ] Set secrets: `supabase secrets set KEY=value`
+* [ ] Deploy functions: `supabase functions deploy`
 
 ### Phase 3: Database Migration
-- [ ] Export Firestore data to JSON
-- [ ] Create Postgres schema in `/supabase/migrations/`
-- [ ] Import data using SQL scripts or seeds
-- [ ] Set up RLS policies
-- [ ] Test data access patterns
+
+* [ ] Export Firestore data to JSON
+
+* [ ] Create Postgres schema in `/supabase/migrations/`
+* [ ] Import data using SQL scripts or seeds
+* [ ] Set up RLS policies
+* [ ] Test data access patterns
 
 ### Phase 4: Update Flutter App
-- [ ] Add `supabase_flutter` to `pubspec.yaml`
-- [ ] Remove Firebase packages
-- [ ] Update authentication calls
-- [ ] Update database queries (Firestore → Supabase)
-- [ ] Update storage calls
-- [ ] Update Edge Function URLs
+
+* [ ] Add `supabase_flutter` to `pubspec.yaml`
+
+* [ ] Remove Firebase packages
+* [ ] Update authentication calls
+* [ ] Update database queries (Firestore → Supabase)
+* [ ] Update storage calls
+* [ ] Update Edge Function URLs
 
 ### Phase 5: Testing
-- [ ] Test auth flows (sign up, sign in, sign out)
-- [ ] Test payment webhooks locally
-- [ ] Test role assignment
-- [ ] Test order confirmation flow
-- [ ] Load test critical paths
+
+* [ ] Test auth flows (sign up, sign in, sign out)
+
+* [ ] Test payment webhooks locally
+* [ ] Test role assignment
+* [ ] Test order confirmation flow
+* [ ] Load test critical paths
 
 ### Phase 6: Cleanup
-- [ ] Delete `/tools/cloudflare-worker/`
-- [ ] Delete `serviceAccountKey.json`
-- [ ] Delete Firebase config files
-- [ ] Remove Firebase/Cloudflare from `package.json`
-- [ ] Update README with new deployment instructions
-- [ ] Archive old Firebase project
+
+* [ ] Delete `/tools/cloudflare-worker/`
+
+* [ ] Delete `serviceAccountKey.json`
+* [ ] Delete Firebase config files
+* [ ] Remove Firebase/Cloudflare from `package.json`
+* [ ] Update README with new deployment instructions
+* [ ] Archive old Firebase project
 
 ---
 
@@ -234,11 +248,11 @@ ORDER_CONFIRMATION_SECRET=your_random_secret_here
 
 ## 📚 **Resources**
 
-- [Supabase Documentation](https://supabase.com/docs)
-- [Edge Functions Guide](https://supabase.com/docs/guides/functions)
-- [Auth Guide](https://supabase.com/docs/guides/auth)
-- [Database Guide](https://supabase.com/docs/guides/database)
-- [Flutter SDK](https://supabase.com/docs/reference/dart/introduction)
+* [Supabase Documentation](https://supabase.com/docs)
+* [Edge Functions Guide](https://supabase.com/docs/guides/functions)
+* [Auth Guide](https://supabase.com/docs/guides/auth)
+* [Database Guide](https://supabase.com/docs/guides/database)
+* [Flutter SDK](https://supabase.com/docs/reference/dart/introduction)
 
 ---
 
@@ -256,6 +270,7 @@ ORDER_CONFIRMATION_SECRET=your_random_secret_here
 ## 🆘 **Troubleshooting**
 
 ### Edge Function won't deploy
+
 ```bash
 # Check function syntax
 deno check supabase/functions/function-name/index.ts
@@ -265,12 +280,14 @@ supabase functions logs function-name
 ```
 
 ### Auth issues
+
 ```bash
 # Check user metadata
 select * from auth.users where id = 'user-id';
 ```
 
 ### Database connection issues
+
 ```bash
 # Reset local database
 supabase db reset
