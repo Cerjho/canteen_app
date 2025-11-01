@@ -1,0 +1,10 @@
+{
+  "name": "canteen-app-tools",
+  "version": "1.0.0",
+  "description": "Utility scripts for canteen_app (Supabase migrations)",
+  "private": true,
+  "scripts": {
+    "help": "echo 'No scripts available. Firebase has been removed.'"
+  },
+  "dependencies": {}
+}
