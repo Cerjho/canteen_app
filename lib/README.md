@@ -2,396 +2,560 @@
 
 ## Overview
 
-This Flutter project uses a **scalable multi-app architecture** that supports both Admin Web App and Parent App (mobile + web) while sharing common business logic.
+This Flutter project implements a **scalable multi-app architecture** supporting an Admin Web Dashboard and Parent Mobile App, with 100% shared core business logic via Riverpod dependency injection and Supabase backend.
+
+**Key Architecture Benefits:**
+- Single codebase with two independent apps (Admin & Parent)
+- Shared models, services, and business logic in lib/core/
+- Feature-based organization for maintainability
+- Role-based access control at routing and database level
+- Supabase PostgreSQL with Row Level Security (RLS)
+- Riverpod for efficient state management and testing
 
 ## 🗂️ Project Structure
 
+```
 lib/
 │
-├── core/                         # 🔷 Shared logic across all apps
-│   ├── config/                   # App-level configuration (theme, Firebase)
-│   ├── constants/                # Constants & Firestore field names
-│   ├── exceptions/               # Custom error handling
-│   ├── models/                   # All Firestore models (menu_item, student, parent, etc.)
-│   ├── providers/                # Global Riverpod providers
-│   ├── services/                 # Shared services (auth, firestore, storage, analytics)
-│   └── utils/                    # Utilities (logger, formatter, validators, etc.)
+├── core/                         # 🔷 Shared code (100% reusable)
+│   ├── config/                   # Configuration (theme, Supabase, env)
+│   ├── constants/                # Constants & database field names
+│   ├── exceptions/               # Custom exceptions
+│   ├── extensions/               # Dart extensions
+│   ├── interfaces/               # Service interfaces (for DI)
+│   ├── models/                   # Data models
+│   ├── providers/                # Riverpod providers
+│   ├── services/                 # Business logic services
+│   ├── utils/                    # Utilities, logger, formatters
+│   ├── link_provider.dart        # Deep linking config
+│   └── links_adapter.dart        # Link handler
 │
-├── features/                     # 🎯 Feature-based modules
-│   ├── admin/                    # Admin Web App only
-│   │   ├── auth/                 # Login, registration, access control
-│   │   ├── dashboard/            # Main dashboard with statistics
-│   │   ├── menu/                 # Manage menu items and weekly menus
-│   │   ├── orders/               # Order management
-│   │   │   ├── orders_screen.dart            # Paginated orders list with filters
-│   │   │   └── order_details_screen.dart     # Order detail view with status updates
+├── features/                     # 🎯 Feature modules
+│   ├── admin/                    # Admin Web App
+│   │   ├── auth/                 # Login & access control
+│   │   ├── dashboard/            # Main dashboard
+│   │   ├── menu/                 # Menu management
+│   │   ├── orders/               # Order management & tracking
 │   │   ├── parents/              # Parent management
-│   │   ├── reports/              # Analytics & reports
-│   │   ├── settings/             # App settings & data seeding
+│   │   ├── reports/              # Analytics & exports
+│   │   ├── settings/             # Admin settings
 │   │   ├── students/             # Student management
-│   │   ├── topups/               # Top-up approval workflow
-│   │   └── widgets/              # Admin-specific reusable UI components
+│   │   ├── topups/               # Top-up approvals
+│   │   └── widgets/              # Admin UI components
 │   │
-│   └── parent/                   # Parent app (mobile + web)
-│       ├── auth/                 # Login/signup
-│       ├── dashboard/            # Parent dashboard
-│       ├── orders/               # Place orders
-│       ├── wallet/               # Balance, top-ups
-│       ├── settings/             # Parent settings
-│       └── widgets/              # Parent-specific reusable widgets
+│   ├── parent/                   # Parent App (Mobile)
+│   │   ├── auth/                 # Auth flow
+│   │   ├── cart/                 # Shopping cart
+│   │   ├── dashboard/            # Home screen
+│   │   ├── menu/                 # Browse menu
+│   │   ├── orders/               # Order history
+│   │   ├── settings/             # Settings
+│   │   ├── student_link/         # Link students
+│   │   ├── wallet/               # Balance & top-ups
+│   │   └── widgets/              # Parent UI components
+│   │
+│   └── payments/                 # Payment processing
 │
-├── router/                       # 🧭 Centralized navigation
-│   ├── router.dart               # Main router with platform detection
-│   ├── admin_routes.dart         # Admin-only routes
-│   └── parent_routes.dart        # Parent-only routes
+├── router/                       # 🧭 Navigation
+│   ├── router.dart               # Main router
+│   ├── admin_routes.dart         # Admin routes
+│   └── parent_routes.dart        # Parent routes
 │
 ├── app/                          # 🚀 Entry points
-│   ├── main_admin_web.dart       # Admin web app entry
-│   ├── main_parent_mobile.dart   # Parent mobile entry (mobile-only)
-│   └── main_common.dart          # Shared initialization logic
+│   ├── main_admin_web.dart       # Admin app entry
+│   ├── main_parent_mobile.dart   # Parent app entry
+│   └── main_common.dart          # Shared initialization
 │
-└── shared/                       # 🎨 Shared UI components
-    ├── theme/                    # (Empty - theme lives in core/config)
-    ├── components/               # Shared widgets (loading, charts, etc.)
-    └── layout/                   # Shared layouts
+├── shared/                       # 🎨 Shared UI
+│   ├── components/               # Reusable widgets
+│   ├── layout/                   # Layouts & scaffolds
+│   └── theme/                    # Theme (delegated to core)
+│
+└── main.dart                     # Platform dispatcher
+```
 
 ## 🎯 Design Principles
 
 ### 1. **Core Module (100% Reusable)**
 
-- Contains all business logic, models, and services
-- No UI components
-- Shared across admin and parent apps
-- Platform-agnostic
+All business logic, models, and services live in lib/core/ with no UI components:
+
+- Models define data structure (Order, Student, Parent, MenuItem, etc.)
+- Services encapsulate business logic (OrderService, StudentService, etc.)
+- Providers manage dependency injection and state (Riverpod)
+- Utilities provide shared functions (logger, formatters, validators)
+- Configuration centralizes app settings (theme, Supabase, environment)
 
 ### 2. **Feature-Based Architecture**
 
-- Each feature is self-contained
-- Features own their UI and feature-specific logic
-- Easy to navigate and maintain
+Each feature is self-contained in its own directory:
+
+features/admin/orders/
+├── orders_screen.dart           # Main UI screen
+├── widgets/
+│   └── order_card.dart          # Feature-specific widgets
+└── models/                      # Feature-specific models (if any)
+
+Benefits:
+- Features can be worked on independently
+- Easy to locate and modify feature code
 - Clear separation of concerns
+- Minimal cross-feature dependencies
 
-### 3. **Independent App Entry Points**
+### 3. **Service Interfaces for Testing**
 
-Each app can run independently:
+All services implement interfaces for easy mocking:
 
-- **Admin Web:** `lib/app/main_admin_web.dart`
-- **Parent Mobile:** `lib/app/main_parent_mobile.dart` (mobile-only)
-
-### 4. **Centralized Routing**
-
-- Single source of truth for navigation
-- Role-based access control
-- Platform-specific route loading
-
-## 📋 Admin Features Detail
-
-### Orders Management System
-
-The admin portal provides a comprehensive orders management interface with data table, filtering, and status tracking capabilities.
-
-#### OrdersScreen (`features/admin/orders/orders_screen.dart`)
-
-**Purpose:** Display all orders in a paginated data table with comprehensive filtering and search capabilities.
-
-**Key Features:**
-- **Data Table:** Columns for Order #, Student, Parent, Items, Amount, Status, Delivery Date, Actions
-- **Filtering:**
-  - Status filter dropdown (all, pending, confirmed, preparing, ready, completed, cancelled)
-  - Date range picker for filtering by delivery date
-  - Search box for order number or student ID lookup
-  - Clear filters button to reset all filters
-- **Pagination:** 10 rows per page with navigation controls
-- **Status Chips:** Color-coded visual indicators (orange=pending, blue=confirmed, purple=preparing, teal=ready, green=completed, red=cancelled)
-- **Actions Menu:** View Details, Update Status (conditional), Cancel Order
-- **Lazy Loading:** Parent names resolved asynchronously via `_ParentNameCell` ConsumerWidget to prevent UI blocking
-
-**Data Flow:**
-```
-ordersProvider (StreamProvider)
-  ↓
-_filterOrders() [applied client-side]
-  ↓
-DataTable display
-  ↓
-User selects action → _updateOrderStatus() or _cancelOrder()
-  ↓
-OrderService methods → Firestore update
-```
-
-**Key Methods:**
-- `_selectDateRange()` - Date range picker dialog
-- `_clearFilters()` - Reset all active filters
-- `_filterOrders()` - Client-side filtering logic
-- `_updateOrderStatus()` - Update order status via service
-- `_cancelOrder()` - Cancel order with confirmation dialog
-- `_buildStatusChip()` - Create color-coded status indicator
-
-#### OrderDetailsScreen (`features/admin/orders/order_details_screen.dart`)
-
-**Purpose:** Display full order information with student/parent details, item breakdown, and status management controls.
-
-**Key Features:**
-- **Order Header:** Order number, status badge, creation and delivery date/time
-- **Student Info Card:** Student name, grade level with icon indicator
-- **Parent Info Card:** Parent name, email with icon indicator
-- **Items Breakdown:** Line-by-line itemization with name, quantity, unit price, and subtotal
-- **Order Total:** Prominent display in primary color (₱ formatted)
-- **Special Instructions:** Conditionally displayed when present
-- **Status Update:** Dropdown selector (only enabled for non-completed/cancelled orders) with Update button
-- **Cancel Order:** Button with confirmation dialog to prevent accidental cancellation
-- **Refresh:** Icon button to reload order data from Firestore
-- **Navigation:** Back button to return to orders list
-
-**Data Flow:**
-```
-orderByIdProvider(orderId) [StreamProvider.family]
-  ↓
-Lazy load student info via studentsAsync
-  ↓
-Lazy load parent info via userByIdProvider
-  ↓
-Display with AsyncValue.when() for loading/error/data states
-  ↓
-User updates status or cancels
-  ↓
-OrderService methods → Firestore update → Auto-refresh via stream
-```
-
-**Key Widgets:**
-- `_StudentInfoWidget` - ConsumerWidget for lazy student info resolution
-- `_ParentInfoWidget` - ConsumerWidget for lazy parent info resolution
-
-#### Shared Utilities
-
-**ListExtensions** (`core/extensions/list_extensions.dart`)
-
-Centralized extension to provide `firstWhereOrNull<T>` method on List:
 ```dart
-extension FirstWhereOrNull<T> on List<T> {
-  T? firstWhereOrNull(bool Function(T element) test) {
-    for (final element in this) {
-      if (test(element)) return element;
-    }
-    return null;
-  }
+// lib/core/interfaces/i_order_service.dart
+abstract class IOrderService {
+  Stream<List<Order>> getOrders();
+  Future<void> updateOrderStatus(String orderId, String status);
 }
+
+// lib/core/services/order_service.dart
+class OrderService implements IOrderService { /* ... */ }
+
+// Tests can mock easily
+final mockService = MockOrderService();
 ```
 
-Used in both order screens for safe list searching without throwing exceptions.
+### 4. **Riverpod Providers for Dependency Injection**
 
-#### Integration with Core Services
+All dependencies are provided via Riverpod:
 
-**Providers Used:**
-- `ordersProvider` - StreamProvider<List<Order>> for all orders
-- `studentsProvider` - StreamProvider<List<Student>> for student lookups
-- `parentsProvider` - StreamProvider<List<Parent>> for parent lookups
-- `userByIdProvider(parentId)` - StreamProvider.family for specific parent user info
-- `orderServiceProvider` - Access to OrderService for updates and cancellations
+```dart
+// lib/core/providers/transaction_providers.dart
+final orderServiceProvider = Provider<IOrderService>((ref) {
+  return OrderService(supabase: ref.watch(supabaseProvider));
+});
 
-**Service Methods:**
-- `OrderService.updateOrderStatus(orderId, statusString)` - Update order status
-- `OrderService.cancelOrder(orderId)` - Cancel order and log cancellation
+// Use in UI
+Consumer(
+  builder: (context, ref, child) {
+    final orderService = ref.watch(orderServiceProvider);
+    // ...
+  },
+)
+```
 
-**Models Used:**
-- `Order` - Complete order document with all fields
-- `OrderStatus` - Enum for valid status values
-- `Student`, `Parent`, `AppUser` - For display information
+### 5. **Supabase with Row Level Security**
+
+Database security is enforced at the RLS policy level:
+
+```sql
+-- Admins can update any order
+CREATE POLICY "admin_update_orders"
+  ON orders FOR UPDATE
+  USING (auth.jwt() ->> 'is_admin' = 'true');
+
+-- Parents can only see their own orders
+CREATE POLICY "parent_read_own_orders"
+  ON orders FOR SELECT
+  USING (parent_id = auth.uid());
+```
 
 ## 🚀 Running the Apps
 
-### Platform Dispatcher (Auto-detect)
+### Platform Auto-Detection
 
 ```bash
-# Automatically runs admin on web, parent on mobile
-flutter run -d chrome              # Runs admin web
-flutter run -d emulator-5554       # Runs parent mobile
+# Web → Admin Dashboard
+flutter run -d chrome
+
+# Mobile → Parent App
+flutter run -d emulator-5554
 ```
 
 ### Explicit Entry Points
 
-```bash
-# Admin Web App
+```powershell
+# Admin Dashboard
 flutter run -d chrome --target lib/app/main_admin_web.dart
 
-# Parent Mobile App
+# Parent Mobile
 flutter run -d emulator-5554 --target lib/app/main_parent_mobile.dart
-flutter run -d iPhone --target lib/app/main_parent_mobile.dart
 
-// Parent Web App support removed. Use the mobile entrypoint for Parent app.
+# Build Web
+flutter build web --target lib/app/main_admin_web.dart
+
+# Build Mobile
+flutter build apk --target lib/app/main_parent_mobile.dart
 ```
+
+## 📦 Core Module Details
+
+### Service Architecture
+
+Services implement interfaces and are provided via Riverpod:
+
+```dart
+// Service interface
+abstract class IStudentService {
+  Stream<List<Student>> getStudents();
+  Future<Student?> getStudentById(String id);
+  Future<void> addStudent(Student student);
+  Future<void> updateStudent(Student student);
+  Future<void> deleteStudent(String id);
+}
+
+// Implementation
+class StudentService implements IStudentService {
+  final SupabaseClient _supabase;
+  
+  StudentService({SupabaseClient? supabase}) 
+    : _supabase = supabase ?? SupabaseConfig.client;
+  
+  @override
+  Stream<List<Student>> getStudents() {
+    return _supabase
+        .from('students')
+        .stream(primaryKey: ['id'])
+        .map((data) => data.map(Student.fromMap).toList());
+  }
+}
+
+// Provider
+final studentServiceProvider = Provider<IStudentService>((ref) {
+  return StudentService(supabase: ref.watch(supabaseProvider));
+});
+```
+
+### Provider Organization
+
+Providers are organized by domain and exported centrally:
+
+```dart
+// lib/core/providers/app_providers.dart
+export 'supabase_providers.dart';     // Supabase client
+export 'auth_providers.dart';         // Auth & user
+export 'user_providers.dart';         // Students & parents
+export 'menu_providers.dart';         // Menu items & weekly menus
+export 'transaction_providers.dart';  // Orders & topups
+export 'storage_providers.dart';      // File storage
+
+// Usage in features
+import '../../../core/providers/app_providers.dart';
+final order = ref.watch(orderByIdProvider(orderId));
+```
+
+### Data Models
+
+All models use toMap/fromMap pattern for Supabase serialization:
+
+```dart
+class Order {
+  final String id;
+  final String orderNumber;
+  final String parentId;
+  final String studentId;
+  final List<OrderItem> items;
+  final Decimal totalAmount;
+  final OrderStatus status;
+  final DateTime deliveryDate;
+  final DateTime createdAt;
+  
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'order_number': orderNumber,
+      'parent_id': parentId,
+      'student_id': studentId,
+      'items': jsonEncode(items),
+      'total_amount': totalAmount,
+      'status': status.name,
+      'delivery_date': deliveryDate.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
+    };
+  }
+  
+  factory Order.fromMap(Map<String, dynamic> map) {
+    return Order(
+      id: map['id'] as String,
+      orderNumber: map['order_number'] as String,
+      parentId: map['parent_id'] as String,
+      studentId: map['student_id'] as String,
+      items: (jsonDecode(map['items']) as List)
+          .map((i) => OrderItem.fromMap(i))
+          .toList(),
+      totalAmount: Decimal.parse(map['total_amount'].toString()),
+      status: OrderStatus.values.byName(map['status'] as String),
+      deliveryDate: DateTime.parse(map['delivery_date'] as String),
+      createdAt: DateTime.parse(map['created_at'] as String),
+    );
+  }
+}
+```
+
+## 📝 Adding New Features
+
+### Admin Feature Example
+
+1. **Create directory:**
+   ```
+   lib/features/admin/inventory/
+   ├── inventory_screen.dart
+   └── widgets/
+       ├── inventory_table.dart
+       └── add_item_dialog.dart
+   ```
+
+2. **Create screen:**
+   ```dart
+   class InventoryScreen extends ConsumerWidget {
+     @override
+     Widget build(BuildContext context, WidgetRef ref) {
+       final items = ref.watch(menuItemsProvider);
+       return items.when(
+         data: (data) => InventoryTable(items: data),
+         loading: () => const Loader(),
+         error: (e, st) => ErrorDisplay(error: e),
+       );
+     }
+   }
+   ```
+
+3. **Add routes:**
+   ```dart
+   // lib/router/admin_routes.dart
+   GoRoute(
+     path: '/admin/inventory',
+     builder: (context, state) => const InventoryScreen(),
+   ),
+   ```
+
+4. **Add navigation:**
+   ```dart
+   // lib/features/admin/widgets/admin_scaffold.dart
+   ListTile(
+     title: const Text('Inventory'),
+     onTap: () => GoRouter.of(context).go('/admin/inventory'),
+   ),
+   ```
+
+### Parent Feature Example
+
+1. **Create directory:**
+   ```
+   lib/features/parent/favorites/
+   ├── favorites_screen.dart
+   └── widgets/
+       └── favorite_item_card.dart
+   ```
+
+2. **Create screen and routes similarly**
 
 ## 📦 Import Conventions
 
-### From Features to Core
-
 ```dart
-// From features/admin/dashboard/
+// From core (models, services, providers)
 import '../../../core/models/order.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/services/auth_service.dart';
-```
+import '../../../core/services/order_service.dart';
 
-### From Features to Shared
-
-```dart
-// From features/admin/dashboard/
+// From shared UI
 import '../../../shared/components/loading_indicator.dart';
-```
+import '../../../shared/layout/app_scaffold.dart';
 
-### Within Feature
+// Within feature (going up to widgets in same feature)
+import 'widgets/my_widget.dart';
+import '../parents/widgets/parent_card.dart';  // Sibling feature (avoid)
 
-```dart
-// From features/admin/menu/ to features/admin/menu/widgets/
-import 'widgets/menu_item_card.dart';
-
-// From features/admin/dashboard/ to features/admin/widgets/
-import '../widgets/admin_scaffold.dart';
-```
-
-### From Router
-
-```dart
-// From router/
-import '../core/providers/app_providers.dart';
-import '../features/admin/auth/login_screen.dart';
-import '../features/parent/dashboard/parent_dashboard_screen.dart';
-```
-
-### From App Entry Points
-
-```dart
-// From app/
-import '../core/config/app_theme.dart';
-import '../router/router.dart';
+// From router
+import '../../../router/router.dart';
 ```
 
 ## 🔐 Authentication & Authorization
 
-### Role-Based Access Control
+### Authentication Flow
 
-- **Admin:** Full access to admin features (web only)
-- **Parent:** Access to parent features (mobile + web)
+1. User launches app
+2. Router checks `authStateProvider`
+3. If unauthenticated → Login screen
+4. User signs in via email or Google
+5. Supabase creates user with JWT token
+6. User document created in `users` table with roles
+7. App reads JWT claims for `is_admin` role
+8. Router directs to admin or parent based on role
+9. On app restart, Supabase restores session
 
-### Platform Enforcement
+### Authorization
 
-- **Web:** Enforces admin-only access
-- **Mobile:** Enforces parent-only access
+Frontend:
+```dart
+// Router redirect based on role
+redirect: (context, state) {
+  final user = ref.watch(currentUserProvider);
+  return user?.isAdmin == true ? null : '/login';
+}
+```
 
-### Router Guards
+Backend (RLS policies):
+```sql
+-- Only admins can update menu_items
+CREATE POLICY "admin_update_items"
+  ON menu_items FOR UPDATE
+  USING (auth.jwt() ->> 'is_admin' = 'true');
+```
 
-The main router (`router/router.dart`) implements:
+## 🛠️ Common Services
 
-1. Authentication checks
-2. Role-based redirects
-3. Platform-specific route loading
+### OrderService
 
-## 🎨 Shared Components
+```dart
+// Stream all orders (admin)
+final ordersProvider = StreamProvider<List<Order>>((ref) {
+  return ref.watch(orderServiceProvider).getOrders();
+});
 
-Reusable widgets live in `shared/components/`:
+// Get single order
+final orderByIdProvider = StreamProvider.family<Order?, String>((ref, id) {
+  return ref.watch(orderServiceProvider).getOrderById(id);
+});
 
-- `loading_indicator.dart` - Loading spinner
-- `stat_card.dart` - Dashboard stat cards
-- `week_picker.dart` - Week selection widget
-- `analytics_charts.dart` - Chart components
-- `analytics_utils.dart` - Chart utilities
-- `import_preview_dialog.dart` - CSV import preview
+// Update status
+await ref.read(orderServiceProvider).updateOrderStatus(
+  orderId: '123',
+  status: 'ready',
+);
+```
 
-## 📝 Adding New Features
+### StudentService
 
-### Admin Feature
+```dart
+// Stream all students
+final studentsProvider = StreamProvider<List<Student>>((ref) {
+  return ref.watch(studentServiceProvider).getStudents();
+});
 
-1. Create directory: `features/admin/new_feature/`
-2. Add screens and widgets
-3. Register routes in `router/admin_routes.dart`
-4. Add navigation in `features/admin/widgets/admin_scaffold.dart`
+// Create new student
+await ref.read(studentServiceProvider).addStudent(
+  Student(
+    firstName: 'John',
+    lastName: 'Doe',
+    grade: '5',
+    parentId: parentId,
+  ),
+);
+```
 
-### Parent Feature
+### StorageService
 
-1. Create directory: `features/parent/new_feature/`
-2. Add screens and widgets
-3. Register routes in `router/parent_routes.dart`
+```dart
+// Upload file
+await ref.read(storageServiceProvider).uploadFile(
+  bucket: 'menu_items',
+  path: 'item_${uuid.v4()}.jpg',
+  file: imageFile,
+);
+```
 
-## Billing model note
+## ✅ Testing Approach
 
-Important: Students are imported entities and not authenticated users. The application charges orders to the linked parent's wallet (the `parents` collection). Student balance fields remain for administrative/reference purposes only. Order processing code and transactions deduct from the parent document, not student documents. If you need per-student billing, update the order creation and transaction logic accordingly.
+### Unit Tests
 
-### Shared Component
+```dart
+void main() {
+  group('OrderService', () {
+    test('creates order with correct data', () async {
+      final mockSupabase = MockSupabaseClient();
+      final service = OrderService(supabase: mockSupabase);
+      
+      final result = await service.createOrder(
+        parentId: 'parent123',
+        studentId: 'student456',
+        items: [mockOrderItem],
+      );
+      
+      expect(result, isNotNull);
+      verify(mockSupabase.from('orders').insert(any)).called(1);
+    });
+  });
+}
+```
 
-1. Add widget to `shared/components/`
-2. Import from features: `import '../../../shared/components/my_widget.dart';`
+### Widget Tests
 
-## 🛠️ Common Models
+```dart
+testWidgets('OrdersScreen displays orders', (tester) async {
+  await tester.pumpWidget(
+    ProviderContainer(
+      overrides: [
+        ordersProvider.overrideWithValue(
+          AsyncValue.data([mockOrder1, mockOrder2]),
+        ),
+      ],
+      child: const MaterialApp(home: OrdersScreen()),
+    ),
+  );
+  
+  expect(find.byType(DataTable), findsOneWidget);
+  expect(find.text('Order #001'), findsOneWidget);
+});
+```
 
-All shared models live in `core/models/`:
+## ⚖️ Important: Billing Model
 
-- `menu_item.dart` - Food/drink items
-- `weekly_menu.dart` - Weekly menu schedules
-- `order.dart` - Order records
-- `student.dart` - Student profiles
-- `parent.dart` - Parent profiles
-- `topup.dart` - Top-up requests
-- `user_role.dart` - User role enum
+**Orders are charged to the PARENT's wallet, not individual students.**
 
-## 🔧 Common Services
+- `parents.balance` is decremented when order is created
+- `students.balance` is for admin reference only
+- Parents must top-up their wallet before placing orders
 
-All shared services live in `core/services/`:
+If you need per-student billing, modify OrderService to deduct from `students.balance` instead:
 
-- `auth_service.dart` - Authentication
-- `menu_service.dart` - Menu management
-- `order_service.dart` - Order management
-- `student_service.dart` - Student management
-- `parent_service.dart` - Parent management
-- `topup_service.dart` - Top-up management
-- `storage_service.dart` - Firebase Storage
-- `weekly_menu_service.dart` - Weekly menu operations
+```dart
+// Current: Deduct from parent
+await _supabase
+    .from('parents')
+    .update({'balance': parentBalance - totalAmount})
+    .eq('id', parentId);
 
-## 🎯 Benefits of This Architecture
+// Alternative: Deduct from student
+await _supabase
+    .from('students')
+    .update({'balance': studentBalance - totalAmount})
+    .eq('id', studentId);
+```
 
-### ✅ Scalability
+## 🔗 External Resources
 
-- Easy to add new features
-- Clear separation between apps
-- Shared code reduces duplication
+- [Flutter Riverpod](https://riverpod.dev)
+- [Supabase Flutter](https://supabase.com/docs/reference/dart/)
+- [Go Router](https://pub.dev/packages/go_router)
+- [Flutter Testing](https://flutter.dev/docs/testing)
 
-### ✅ Maintainability
+## 🎯 Architecture Decision Records
 
-- Feature-based organization
-- Easy to navigate
-- Clear dependencies
+### ADR-001: Supabase over Firebase
 
-### ✅ Testability
+**Decision**: Use Supabase PostgreSQL
 
-- Core logic is isolated
-- Features can be tested independently
-- Mock services easily
+**Rationale**:
+- SQL for complex queries
+- Row-Level Security at database
+- Cost-effective for scale
+- Better transaction support
+- Realtime with PostgreSQL trigger
 
-### ✅ Team Collaboration
+### ADR-002: Riverpod for State
 
-- Clear boundaries between features
-- Multiple developers can work in parallel
-- Reduced merge conflicts
+**Decision**: Use flutter_riverpod throughout
 
-## 🔄 Migration Notes
+**Rationale**:
+- No BuildContext required
+- Automatic dependency management
+- Easy provider overrides
+- Better performance
+- Decouples UI from logic
 
-### From Old Structure
+### ADR-003: Feature-Based Organization
 
-ui/screens/admin/    → features/admin/
-ui/screens/parent/   → features/parent/
-ui/widgets/          → shared/components/
-ui/router/           → router/
-main_web.dart        → app/main_admin_web.dart
-main_mobile.dart     → app/main_parent_mobile.dart
+**Decision**: Organize by feature, not by layer
 
-### Import Updates
-
-- `../../../core/` stays the same
-- `../../../widgets/` → `../../../shared/components/`
-- `../../screens/` → `../` (within features)
-
-## 📚 Further Reading
-
-- `MULTI_PLATFORM_ARCHITECTURE.md` - Detailed architecture guide
-- `MULTI_PLATFORM_QUICK_REFERENCE.md` - Quick reference
-- `HOW_TO_CREATE_ADMIN_ACCOUNT.md` - Admin setup
-- `DEPLOYMENT_GUIDE.md` - Deployment instructions
+**Rationale**:
+- Easier to scale (add features)
+- Feature-specific widgets stay together
+- Clear feature boundaries
+- Simpler navigation
+- Faster parallel development
