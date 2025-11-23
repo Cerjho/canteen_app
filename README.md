@@ -1,54 +1,98 @@
-# School Canteen Admin App 🍽️
+# Loheca School Canteen App 🍽️
 
-A modern Flutter project with two separate apps sharing core logic:
+A comprehensive Flutter multi-app system for managing school canteen operations with real-time ordering, inventory, and payment management.
 
-- Admin: Web-only Admin Dashboard (in `lib/admin/`)
-- Parent: Mobile-only Parent App (in `lib/parent/`)
+**Architecture:**
+
+- **Admin Dashboard**: Web-only portal for administrators (lib/features/admin/)
+- **Parent App**: Mobile app for parents/guardians to browse menu and place orders (lib/features/parent/)
+- **Shared Core**: 100% reusable business logic, models, and services (lib/core/)
+
+**Backend:** Supabase (PostgreSQL + Realtime + Auth + Storage)
+**State Management:** Flutter Riverpod
+**UI Framework:** Flutter Material Design 3
 
 ## 📋 Features
 
-### Admin Features
+### 🎯 Admin Dashboard Features
 
-- **Dashboard Overview**: Real-time statistics for orders, revenue, and pending top-ups
-- **Student Management**: CRUD operations, assign students to parents
-- **Parent Management**: View/edit parent profiles, manage balances
-- **Menu Management**: Add/edit menu items with images, prices, allergens
-- **Orders Management**: 
-  - View all orders in paginated data table
-  - Filter by status (pending, confirmed, preparing, ready, completed, cancelled)
-  - Filter by date range with date picker
-  - Search orders by order number or student ID
-  - Quick actions: View details, update status, cancel order
-  - Real-time order status updates with visual status chips
-  - View order breakdown: items, quantities, unit prices, totals
-  - View student and parent information linked to order
-- **Top-up Management**: Approve/decline balance top-up requests
-- **Reports**: Export orders and revenue to CSV/Excel
-- **Settings**: App configuration and preferences
+- **Dashboard Overview**: Real-time statistics for orders, revenue, pending top-ups, and inventory status
+- **Student Management**: CRUD operations, assign students to parents, track allergies and dietary restrictions
+- **Parent Management**: View and edit parent profiles, manage wallet balance, track linked students
+- **Menu Management**: Add/edit/delete menu items with images, set prices and availability, manage weekly menus
+- **Orders Management**: View all orders with real-time updates, multi-filter by status/date/search, update status, cancel orders, view complete order breakdown
+- **Top-up Management**: Review and approve/decline balance top-up requests with audit trail
+- **Analytics & Reports**: Export orders and revenue reports to CSV/Excel, view popular menu items
+- **Settings & Administration**: App configuration, data import/export, user role management
 
-## 🏗️ Project Structure
+### 📱 Parent App Features
+
+- **Authentication**: Google Sign-In and email/password login
+- **Dashboard**: Quick view of linked students, recent orders, account balance
+- **Menu Browsing**: View weekly menu with images and prices, filter by category, see allergen warnings
+- **Order Placement**: Add items to cart by student and date, review summary, place orders
+- **Wallet Management**: View balance, request top-ups, track transaction history
+- **Order History**: Track placed orders and their status
+- **Student Linking**: Link/unlink students to account
+- **Settings**: Update profile, manage linked students, notification preferences## 🏗️ Project Structure
 
 lib/
-├── core/                    # Shared code for both Admin & Parent apps
-│   ├── models/             # Data models (Student, Parent, Order, etc.)
-│   ├── services/           # Firebase services (Firestore, Auth, Storage)
-│   ├── providers/          # Riverpod providers for state management
-│   ├── utils/              # Utility functions (formatting, validation, export)
-│   └── config/             # App configuration (theme, Firebase)
-├── admin/                   # Admin app specific code (web)
-│   ├── screens/            # Admin UI screens
-│   │   ├── auth/          # Login screen
-│   │   ├── dashboard/     # Dashboard with statistics
-│   │   ├── students/      # Student management
-│   │   ├── parents/       # Parent management
-│   │   ├── menu/          # Menu item management
-│   │   ├── orders/        # Order management
-│   │   ├── topups/        # Top-up management
-│   │   ├── reports/       # Reports and exports
-│   │   └── settings/      # Settings
-│   ├── widgets/           # Reusable admin widgets
-│   └── router/            # Go Router configuration
-└── parent/                 # Parent app (mobile-only)
+├── core/                         # 🔷 Shared code (100% reusable across all apps)
+│   ├── config/                   # App configuration (theme, Supabase, environment)
+│   ├── constants/                # Constants & Supabase table field names
+│   ├── exceptions/               # Custom error handling
+│   ├── extensions/               # Dart extensions for common operations
+│   ├── interfaces/               # Service interfaces (I-prefixed for DI)
+│   ├── models/                   # Data models (Student, Parent, Order, MenuItem, etc.)
+│   ├── providers/                # Riverpod providers for state management
+│   ├── services/                 # Supabase services (auth, user, student, order, menu, etc.)
+│   ├── utils/                    # Utility functions (logger, formatters, validators, seeders)
+│   ├── link_provider.dart        # Deep linking configuration
+│   └── links_adapter.dart        # Link handler adapter
+│
+├── features/                     # 🎯 Feature-based modules
+│   ├── admin/                    # Admin Web App only
+│   │   ├── auth/                 # Login, registration, access control
+│   │   ├── dashboard/            # Main dashboard with real-time statistics
+│   │   ├── menu/                 # Menu items and weekly menu management
+│   │   ├── orders/               # Order management with filters and status updates
+│   │   ├── parents/              # Parent profile and balance management
+│   │   ├── reports/              # Analytics, exports (CSV/Excel)
+│   │   ├── settings/             # App settings and data seeding
+│   │   ├── students/             # Student management and linking
+│   │   ├── topups/               # Top-up request approval workflow
+│   │   └── widgets/              # Admin-specific reusable UI components
+│   │
+│   ├── parent/                   # Parent App (Mobile + Web via dispatcher)
+│   │   ├── auth/                 # Login/signup with Google Sign-In
+│   │   ├── cart/                 # Shopping cart for order placement
+│   │   ├── dashboard/            # Parent home screen with quick actions
+│   │   ├── menu/                 # Browse weekly menu and items
+│   │   ├── orders/               # Order history and tracking
+│   │   ├── settings/             # Parent profile and preferences
+│   │   ├── student_link/         # Student linking workflow
+│   │   ├── wallet/               # Balance management and top-ups
+│   │   └── widgets/              # Parent-specific reusable UI components
+│   │
+│   └── payments/                 # Payment processing (if implemented)
+│
+├── router/                       # 🧭 Centralized navigation
+│   ├── router.dart               # Main router with platform detection
+│   ├── admin_routes.dart         # Admin-only routes
+│   └── parent_routes.dart        # Parent app routes
+│
+├── app/                          # 🚀 Entry points
+│   ├── main_admin_web.dart       # Admin web app entry point
+│   ├── main_parent_mobile.dart   # Parent mobile app entry point
+│   └── main_common.dart          # Shared app initialization
+│
+├── shared/                       # 🎨 Shared UI components
+│   ├── components/               # Reusable widgets (loading, charts, buttons, etc.)
+│   ├── layout/                   # Shared layouts and scaffolds
+│   └── theme/                    # Theme configuration (delegated to core/config)
+│
+└── main.dart                     # Platform dispatcher (routes to admin or parent)
+
    └── parent_app.dart    # Parent app entry point (mobile)
 
 ## 🚀 Getting Started
@@ -64,261 +108,394 @@ lib/
 1. **Clone the repository**
 
    ```bash
-   git clone <repository-url>
-   cd admin_app
-   ```
-
-2. **Install dependencies**
-
-   ```bash
+   git clone https://github.com/Cerjho/canteen_app.git
+   cd canteen_app
    flutter pub get
    ```
 
-3. **Configure Firebase**
+2. **Configure Supabase**
 
-   You need to set up Firebase for your project:
+   a. Create a Supabase project at [Supabase Console](https://app.supabase.com)
 
-   a. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
-
-   b. Enable the following services:
-      - Authentication (Email/Password)
-      - Cloud Firestore
+   b. Enable the following:
+      - Authentication (Email/Password, Google OAuth)
+      - Realtime database
       - Storage
 
-   c. Get your Firebase configuration:
-      - Go to Project Settings > General
-      - Scroll down to "Your apps"
-      - Click on the Web icon (</>)
-      - Copy the configuration
+   c. Create `.env` file in project root:
 
-   d. Update `lib/core/config/firebase_options.dart` with your Firebase configuration:
-
-   ```dart
-   static const FirebaseOptions web = FirebaseOptions(
-     apiKey: 'YOUR_WEB_API_KEY',
-     authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-     projectId: 'YOUR_PROJECT_ID',
-     storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-     messagingSenderId: 'YOUR_SENDER_ID',
-     appId: 'YOUR_WEB_APP_ID',
-     measurementId: 'YOUR_MEASUREMENT_ID',
-   );
+   ```env
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your_anon_key
+   BACKEND_BASE_URL=https://your-api.com  # Optional, for custom backend
    ```
 
-4. **Set up Firestore Security Rules**
+   d. Database Schema (PostgreSQL):
+      - Create tables: `users`, `students`, `parents`, `menu_items`, `orders`, `topups`, `weekly_menus`
+      - See `supabase/migrations/` for migration files
+      - See `supabase/seed/` for sample data seeding
 
-   In Firebase Console > Firestore Database > Rules, add:
+3. **Enable Row Level Security (RLS) Policies**
 
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       // Allow authenticated users to read/write
-       match /{document=**} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
+   In Supabase Console > Authentication > Policies:
+   - Admins can manage all data
+   - Parents can only see their linked students and orders
+   - Students data is read-only for authenticated users
+   - Orders are created by parents for their linked students
 
-5. **Create an admin user**
+4. **Configure Google Sign-In**
 
-   In Firebase Console > Authentication > Users > Add User, create an admin account.
+   a. Go to [Google Cloud Console](https://console.cloud.google.com)
+   b. Create OAuth 2.0 Client IDs for Web, Android, and iOS
+   c. Add redirect URIs in Supabase > Authentication > Providers > Google
+
+5. **Set up Storage Buckets**
+
+   Create public buckets in Supabase Storage:
+   - `menu_items/` - Menu item photos
+   - `students/` - Student profile photos
+   - `parents/` - Parent profile photos
+   - `order_proofs/` - Payment proof screenshots
 
 ### Running the Apps
 
-This repository now contains two separate entrypoints. Use the explicit --target flag to run the app you want.
+**Platform Dispatcher** - Auto-detects platform in `lib/main.dart`:
 
-#### Admin (Web)
+- Web platform → runs Admin Dashboard
+- Mobile platforms → runs Parent App
 
-Starts the Admin Dashboard in the browser (web-only).
+To explicitly run specific apps:
+
+#### Admin Dashboard (Web)
 
 ```powershell
+# Chrome browser
 flutter run -d chrome --target lib/app/main_admin_web.dart
+
+# Edge browser
+flutter run -d edge --target lib/app/main_admin_web.dart
 ```
 
-#### Parent (Mobile - Android/iOS)
-
-Runs the Parent mobile app on an emulator or device.
+#### Parent App (Mobile)
 
 ```powershell
-# Android emulator or device
+# Android emulator
 flutter run -d emulator-5554 --target lib/app/main_parent_mobile.dart
 
-# iOS simulator (on macOS)
-flutter run -d <iPhone-device-id> --target lib/app/main_parent_mobile.dart
+# Android device
+flutter run -d <device-id> --target lib/app/main_parent_mobile.dart
+
+# iOS simulator
+flutter run -d simulator --target lib/app/main_parent_mobile.dart
 ```
 
-#### Build for production
+#### Build for Production
 
 ```powershell
-# Web (Admin)
+# Web (Admin Dashboard)
 flutter build web --target lib/app/main_admin_web.dart
+flutter build web --release --target lib/app/main_admin_web.dart
 
-# Android (Parent mobile)
+# Android APK
 flutter build apk --target lib/app/main_parent_mobile.dart
 
-# iOS (Parent mobile)
+# Android App Bundle
+flutter build appbundle --target lib/app/main_parent_mobile.dart
+
+# iOS
 flutter build ios --target lib/app/main_parent_mobile.dart
 ```
 
 ## 🎨 Tech Stack
 
-- **Framework**: Flutter 3.9.2
-- **State Management**: Riverpod 2.6.1
-- **Routing**: Go Router 14.8.1
-- **Backend**: Firebase (Auth, Firestore, Storage)
-- **UI**: Material Design 3
-- **Data Export**: CSV, Excel
+- **Framework**: Flutter 3.9.2+
+- **State Management**: Flutter Riverpod 2.6.1+
+- **Routing**: Go Router 14.6.2+
+- **Backend**: Supabase (PostgreSQL + Realtime + Auth + Storage)
+- **Authentication**: Supabase Auth (Email/Password, Google Sign-In)
+- **UI**: Material Design 3 with Flutter ScreenUtil for responsive design
+- **Data Export**: CSV and Excel (via csv and excel packages)
+- **HTTP Client**: Custom ApiClient with Supabase integration
+- **Deep Linking**: app_links for URL handling
+- **Charts**: fl_chart for analytics and reporting
+- **Environment Config**: flutter_dotenv for .env file support
+- **Form Handling**: flutter_form_builder with validators
+- **Image Management**: CachedNetworkImage for efficient loading
+- **File Operations**: file_picker and image_picker
 
 ## 📦 Key Packages
 
-- `firebase_core`, `firebase_auth`, `cloud_firestore`, `firebase_storage` - Firebase integration
-- `flutter_riverpod` - State management
-- `go_router` - Declarative routing
-- `intl` - Internationalization and formatting
-- `csv`, `excel` - Data export
-- `image_picker`, `file_picker` - File uploads
-- `cached_network_image` - Image caching
-- `fl_chart` - Charts and graphs
+| Package | Purpose | Version |
+|---------|---------|---------|
+| `supabase_flutter` | Backend (Auth, Realtime, Storage, PostgreSQL) | ^2.8.0 |
+| `flutter_riverpod` | State management with dependency injection | ^2.6.1 |
+| `go_router` | Type-safe declarative routing | ^14.6.2 |
+| `flutter_dotenv` | Environment configuration from .env | ^5.2.1 |
+| `http` | HTTP client for API calls | ^1.5.0 |
+| `intl` | Date/time and number formatting | ^0.20.1 |
+| `uuid` | Unique ID generation | ^4.5.1 |
+| `csv`, `excel` | Export orders and reports to files | ^6.0.0, ^4.0.6 |
+| `cached_network_image` | Efficient image caching and loading | ^3.4.1 |
+| `image_picker`, `file_picker` | File and image selection | ^1.1.2, ^8.1.4 |
+| `fl_chart` | Charts and graphs for analytics | ^0.70.1 |
+| `google_sign_in` | Google authentication | ^6.2.1 |
+| `flutter_screenutil` | Responsive design scaling | ^5.9.3 |
+| `flutter_form_builder` | Form creation and validation | ^10.2.0 |
+| `logger` | Logging utilities | ^2.4.0 |
+| `table_calendar` | Calendar widget for date selection | ^3.2.0 |
+| `app_links` | Deep linking support | ^6.4.1 |
+| `flutter_svg` | SVG rendering | ^2.0.16 |
 
 ## 🔑 Default Credentials
 
-**Note**: You need to create an admin user in Firebase Authentication first.
+**Note**: You need to create an admin user through Supabase Authentication first.
 
-Example:
+Create a test user:
 
 - Email: `admin@example.com`
-- Password: `admin123`
+- Password: `SecurePassword123!`
+- Set `is_admin: true` in the users table
 
 ## 📊 Database Schema
 
-### Collections
+### Supabase PostgreSQL Tables
+
+#### users
+
+- `id` (UUID, Primary Key) - Auth UID
+- `first_name` (TEXT)
+- `last_name` (TEXT)
+- `email` (TEXT, Unique)
+- `is_admin` (BOOLEAN)
+- `is_parent` (BOOLEAN)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+- `is_active` (BOOLEAN)
 
 #### students
 
-- id, firstName, lastName, grade
-- parentId, allergies, dietaryRestrictions
-- balance, isActive, photoUrl
-- createdAt, updatedAt
+- `id` (UUID, Primary Key)
+- `first_name` (TEXT)
+- `last_name` (TEXT)
+- `grade` (TEXT)
+- `parent_id` (UUID, Foreign Key)
+- `allergies` (JSONB)
+- `dietary_restrictions` (JSONB)
+- `balance` (DECIMAL) - Admin-only (billing to parent)
+- `photo_url` (TEXT)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+- `is_active` (BOOLEAN)
 
 #### parents
 
-- id, firstName, lastName, email
-- phoneNumber, balance, studentIds
-- isActive, photoUrl
-- createdAt, updatedAt
+- `id` (UUID, Primary Key)
+- `user_id` (UUID, Foreign Key)
+- `balance` (DECIMAL) - Wallet balance
+- `address` (TEXT)
+- `phone` (TEXT)
+- `children` (JSONB)
+- `photo_url` (TEXT)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+- `is_active` (BOOLEAN)
 
 #### menu_items
 
-- id, name, description, price, category
-- imageUrl, allergens[]
-- isVegetarian, isVegan, isGlutenFree
-- isAvailable, stockQuantity
-- createdAt, updatedAt
+- `id` (UUID, Primary Key)
+- `name` (TEXT)
+- `description` (TEXT)
+- `category` (TEXT)
+- `price` (DECIMAL)
+- `image_url` (TEXT)
+- `allergens` (JSONB)
+- `is_vegetarian` (BOOLEAN)
+- `is_vegan` (BOOLEAN)
+- `is_gluten_free` (BOOLEAN)
+- `is_available` (BOOLEAN)
+- `stock_quantity` (INT)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+
+#### weekly_menus
+
+- `id` (UUID, Primary Key)
+- `title` (TEXT)
+- `items` (JSONB)
+- `published_at` (TIMESTAMP)
+- `published_by` (UUID, Foreign Key)
+- `is_active` (BOOLEAN)
+- `start_date` (DATE)
+- `end_date` (DATE)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
 
 #### orders
 
-- id, orderNumber, parentId, studentId
-- items[], totalAmount, status, orderType
-- deliveryDate, deliveryTime
-- specialInstructions, notes
-- completedAt, cancelledAt
-- createdAt, updatedAt
-
-**Order Status Workflow:**
-- `pending` - Order created, awaiting confirmation (orange)
-- `confirmed` - Order confirmed by admin (blue)
-- `preparing` - Kitchen is preparing the order (purple)
-- `ready` - Order ready for pickup/delivery (teal)
-- `completed` - Order delivered or picked up (green)
-- `cancelled` - Order cancelled by admin or parent (red)
-
-**Order Type:**
-- `oneTime` - Single order for a specific date
-- `weekly` - Recurring weekly order
-
-**Integration Note:** Orders are charged to the linked parent's wallet, not individual student balances. Parents must top up their wallet to place orders for linked students.
+- `id` (UUID, Primary Key)
+- `order_number` (TEXT, Unique)
+- `parent_id` (UUID, Foreign Key)
+- `student_id` (UUID, Foreign Key)
+- `items` (JSONB)
+- `total_amount` (DECIMAL)
+- `status` (TEXT) - pending, confirmed, preparing, ready, completed, cancelled
+- `order_type` (TEXT) - oneTime, weekly
+- `delivery_date` (DATE)
+- `delivery_time` (TIME)
+- `special_instructions` (TEXT)
+- `completed_at` (TIMESTAMP)
+- `cancelled_at` (TIMESTAMP)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
 
 #### topups
 
-- id, parentId, parentName
-- studentId, studentName, amount
-- status, paymentMethod
-- transactionReference, proofImageUrl
-- notes, adminNotes, processedBy
-- requestDate, processedAt
-- createdAt, updatedAt
+- `id` (UUID, Primary Key)
+- `parent_id` (UUID, Foreign Key)
+- `student_id` (UUID, Foreign Key, Optional)
+- `amount` (DECIMAL)
+- `status` (TEXT) - pending, approved, rejected
+- `payment_method` (TEXT)
+- `transaction_reference` (TEXT)
+- `proof_image_url` (TEXT)
+- `notes` (TEXT)
+- `admin_notes` (TEXT)
+- `processed_by` (UUID, Foreign Key, Optional)
+- `request_date` (TIMESTAMP)
+- `processed_at` (TIMESTAMP)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
 
-## 🔄 Firestore Update Operations & Permissions
+### Order Status Workflow
 
-### How Updates Work
+- `pending` - Order created, awaiting confirmation
+- `confirmed` - Admin confirmed the order
+- `preparing` - Kitchen is preparing the order
+- `ready` - Order ready for pickup/delivery
+- `completed` - Order fulfilled
+- `cancelled` - Order cancelled
 
-- Updates to Firestore documents are performed using the `.update()` method for partial updates, or `.set(..., merge: true)` for merging new data.
-- Most update operations also set an `updatedAt` timestamp to track changes.
-- Update logic is encapsulated in service classes (see `lib/core/services/`).
+**Important**: Orders are charged to the linked parent's wallet, not individual student balances. Parents must have sufficient balance to place orders.
 
-### Update Permissions (by Collection)
+## 🔄 Supabase Row Level Security (RLS) Policies
 
-| Collection    | Who Can Update?         | Updatable Fields (by non-admin)                | Notes |
-|--------------|------------------------|------------------------------------------------|-------|
-| users        | Admin only             | All fields                                     | Users cannot update their own role or isActive |
-| parents      | Admin, Parent (self)   | Parents: address, phone, children[]             | Parents cannot update balance or userId        |
-| students     | Admin only             | All fields                                     | Parents cannot update student info directly    |
-| menu_items   | Admin only             | All fields                                     |                                             |
-| orders       | Admin only             | status, notes                                  |                                             |
-| topups       | Admin only             | status, adminNotes, processedBy, processedAt    |                                             |
+### How Security Works
 
-Field-level security is enforced by Firestore security rules. See the `firestore.rules` file for details.
+- Supabase enforces row-level security at the database level
+- Policies control who can read/write/update/delete rows based on user ID and role
+- All data access goes through the Supabase client with `auth.uid()`
+- Update logic is encapsulated in service classes (see `lib/core/services/`)
 
-### Example Update Flows
+### Update Permissions (by Table)
 
-#### Update User Profile (Admin)
+| Table | Admin | Parent (Self) | Parent (Others) | Notes |
+|-------|-------|---------------|-----------------|-------|
+| users | ✅ Full | ✅ Own record only | ❌ | Cannot change own role or is_active |
+| parents | ✅ Full | ✅ Own record | ❌ | Cannot update balance directly |
+| students | ✅ Full | ❌ | ❌ | Parents see via parent.children array |
+| menu_items | ✅ Full | ❌ | ❌ | Read-only for parents |
+| orders | ✅ Full | ✅ Create own, ❌ Update | ❌ | Admin can update status |
+| topups | ✅ Full | ✅ Create own | ❌ | Admin approves/rejects |
+| weekly_menus | ✅ Full | ❌ | ❌ | Read-only for parents |
+
+### Example RLS Policies
+
+```sql
+-- Allow parents to read menu items
+CREATE POLICY "menu_read_all"
+  ON menu_items FOR SELECT
+  USING (auth.role() = 'authenticated_user');
+
+-- Allow parents to create their own orders
+CREATE POLICY "orders_insert_own"
+  ON orders FOR INSERT
+  WITH CHECK (parent_id = auth.uid());
+
+-- Allow parents to view own orders
+CREATE POLICY "orders_select_own"
+  ON orders FOR SELECT
+  USING (parent_id = auth.uid() OR auth.jwt() ->> 'is_admin' = 'true');
+
+-- Allow admins full access
+CREATE POLICY "admin_all"
+  ON orders FOR ALL
+  USING (auth.jwt() ->> 'is_admin' = 'true');
+```
+
+## 🛠️ Core Services & Models
+
+### Service Classes
+
+All shared services live in `lib/core/services/`:
+
+- `auth_service.dart` - Authentication (login, signup, sign out)
+- `user_service.dart` - User management
+- `student_service.dart` - Student CRUD and import/export
+- `parent_service.dart` - Parent profile and balance management
+- `order_service.dart` - Order creation and status updates
+- `topup_service.dart` - Top-up request handling
+- `menu_service.dart` - Menu item management
+- `weekly_menu_service.dart` - Weekly menu scheduling
+- `storage_service.dart` - File uploads to Supabase Storage
+- `registration_service.dart` - New user registration flow
+- `api_client.dart` - Custom HTTP client for backend calls (optional)
+- `cart_persistence_service.dart` - Persist shopping cart locally
+
+### Model Classes
+
+All shared models live in `lib/core/models/`:
+
+- `user_role.dart` - User role enum (admin, parent)
+- `student.dart` - Student profile model
+- `parent.dart` - Parent profile model
+- `order.dart` - Order model with status enum
+- `menu_item.dart` - Menu item model
+- `weekly_menu.dart` - Weekly menu model
+- `topup.dart` - Top-up request model
+- `cart_item.dart` - Shopping cart item
+- `parent_transaction.dart` - Transaction history
+- `weekly_menu_analytics.dart` - Analytics data
+
+### Providers
+
+All providers live in `lib/core/providers/`:
+
+- `supabase_providers.dart` - Supabase client instance
+- `auth_providers.dart` - Authentication and user service providers
+- `user_providers.dart` - Student and parent service providers
+- `menu_providers.dart` - Menu and weekly menu providers
+- `transaction_providers.dart` - Order and top-up providers
+- `storage_providers.dart` - Storage service provider
+- `app_providers.dart` - Central export file for all providers
+
+## 📱 App Entry Points
+
+### Admin Web App
 
 ```dart
-await userService.updateUser(updatedUser);
+// lib/app/main_admin_web.dart
+// Platform: Web only (Chrome, Edge, etc.)
+// Features: Complete admin dashboard
+// Run: flutter run -d chrome --target lib/app/main_admin_web.dart
 ```
 
-#### Update Parent Contact Info (Parent)
+### Parent Mobile App
 
 ```dart
-await parentService.updateContactInfo(userId: parentId, address: 'New Address', phone: '123456789');
+// lib/app/main_parent_mobile.dart
+// Platform: Android, iOS (mobile-only)
+// Features: Browse menu, place orders, manage wallet
+// Run: flutter run -d emulator-5554 --target lib/app/main_parent_mobile.dart
 ```
 
-#### Update Student Balance (Admin)
+### Platform Dispatcher
 
 ```dart
-await studentService.updateBalance(studentId, newBalance);
+// lib/main.dart
+// Routes to appropriate app based on platform
+// if (kIsWeb) -> Admin Dashboard
+// else -> Parent Mobile App
 ```
-
-#### Update Menu Item Availability (Admin)
-
-```dart
-await menuService.updateAvailability(menuItemId, true);
-```
-
-#### Update Order Status (Admin)
-
-```dart
-await orderService.updateOrderStatus(orderId, 'completed');
-```
-
-#### Approve Top-up (Admin)
-
-```dart
-await topupService.approveTopup(topupId, adminId);
-```
-
-### Security Example
-
-Parents can update their own address and phone, but cannot change their balance:
-
-```js
-// firestore.rules
-allow update: if isAdmin() || (isOwnParentAccount(parentUserId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance', 'userId']));
-```
-
-For more, see the `firestore.rules` file and service class documentation.
-
-To populate your database with test data:
 
 1. Import the seed utility in your code:
 
@@ -575,9 +752,9 @@ node tools/set_custom_claims.js .\path\to\serviceAccountKey.json <USER_UID> fals
 
 Alternatives:
 
-   - Use the Firebase Admin SDK inside Cloud Functions or a trusted server to set claims programmatically.
+- Use the Firebase Admin SDK inside Cloud Functions or a trusted server to set claims programmatically.
 
-   - For smaller teams, you can still keep roles in `users/{uid}.role` in Firestore, but prefer custom claims when you can because they cannot be altered by clients.
+- For smaller teams, you can still keep roles in `users/{uid}.role` in Firestore, but prefer custom claims when you can because they cannot be altered by clients.
 
 Security note: keep service account keys secure and never commit them to source control. Use environment variables or Secret Manager in CI systems.
 
