@@ -4,6 +4,9 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/menu_item.dart';
+import 'auth_providers.dart';
+import 'supabase_providers.dart';
+import '../services/cart_persistence_service.dart';
 
 /// WeeklyCartItem - represents an item ordered for a specific day
 class WeeklyCartItem {
@@ -66,7 +69,6 @@ class WeeklySummary {
   final Map<DateTime, double> dailyCosts; // Date -> cost
   final int daysWithOrders;
   final double averageCostPerDay;
-  final double? totalCalories;
 
   WeeklySummary({
     required this.totalCost,
@@ -75,7 +77,6 @@ class WeeklySummary {
     required this.dailyCosts,
     required this.daysWithOrders,
     required this.averageCostPerDay,
-    this.totalCalories,
   });
 }
 
@@ -85,7 +86,29 @@ class WeeklySummary {
 /// - Key: Normalized date (midnight) representing the day
 /// - Value: List of items ordered for that day
 class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem>>> {
-  WeeklyCartNotifier() : super({});
+  final Ref ref;
+  WeeklyCartNotifier(this.ref) : super({}) {
+    _loadFromDb();
+  }
+
+  Future<void> _loadFromDb() async {
+    try {
+      final uid = ref.read(currentUserProvider).value?.uid;
+      if (uid == null) return;
+      final service = CartPersistenceService(supabase: ref.read(supabaseProvider));
+      final data = await service.fetchWeeklyCart(uid);
+      if (data.isNotEmpty) state = data;
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final uid = ref.read(currentUserProvider).value?.uid;
+      if (uid == null) return;
+      final service = CartPersistenceService(supabase: ref.read(supabaseProvider));
+      await service.saveWeeklyCart(uid, state);
+    } catch (_) {}
+  }
 
   final _uuid = const Uuid();
 
@@ -115,7 +138,8 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
       final updatedList = [...currentItems];
       updatedList[existingIndex] = updatedItem;
       
-      state = {...state, normalizedDate: updatedList};
+  state = {...state, normalizedDate: updatedList};
+  _persist();
       sw.stop();
       if (kDebugMode) developer.log('addItemForDate (update) took: ${sw.elapsedMilliseconds}ms', name: 'WeeklyCart');
     } else {
@@ -136,6 +160,7 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
         ...state,
         normalizedDate: [...currentItems, newItem],
       };
+      _persist();
       sw.stop();
       if (kDebugMode) developer.log('addItemForDate (add) took: ${sw.elapsedMilliseconds}ms', name: 'WeeklyCart');
     }
@@ -155,11 +180,13 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
       // Remove the date key if no items left
       final newState = Map<DateTime, List<WeeklyCartItem>>.from(state);
       newState.remove(normalizedDate);
-      state = newState;
+  state = newState;
+  _persist();
       sw.stop();
       if (kDebugMode) developer.log('removeItemForDate (remove key) took: ${sw.elapsedMilliseconds}ms', name: 'WeeklyCart');
     } else {
-      state = {...state, normalizedDate: updatedItems};
+  state = {...state, normalizedDate: updatedItems};
+  _persist();
       sw.stop();
       if (kDebugMode) developer.log('removeItemForDate (update list) took: ${sw.elapsedMilliseconds}ms', name: 'WeeklyCart');
     }
@@ -240,7 +267,8 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
       newState[normalizedTargetDay] = mergedItems;
     }
     
-    state = newState;
+  state = newState;
+  _persist();
     sw.stop();
     if (kDebugMode) developer.log('copyDayToOtherDays copied to ${targetDays.length} days took: ${sw.elapsedMilliseconds}ms', name: 'WeeklyCart');
   }
@@ -258,7 +286,8 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
 
   /// Clear entire week (all days)
   void clearWeek() {
-    state = {};
+  state = {};
+  _persist();
   }
 
   /// Get all items for a specific date
@@ -323,24 +352,6 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
     return breakdown;
   }
 
-  /// Get total calories across all days (if available)
-  double? getWeeklyCalories() {
-    double? totalCalories;
-    
-    for (final items in state.values) {
-      for (final item in items) {
-        if (item.menuItem.calories != null) {
-          totalCalories = (totalCalories ?? 0) + (item.menuItem.calories! * item.quantity);
-        } else {
-          // If any item lacks calorie info, return null (incomplete data)
-          return null;
-        }
-      }
-    }
-    
-    return totalCalories;
-  }
-
   /// Get comprehensive weekly summary
   WeeklySummary getWeeklySummary() {
     final dailyCosts = <DateTime, double>{};
@@ -359,14 +370,13 @@ class WeeklyCartNotifier extends StateNotifier<Map<DateTime, List<WeeklyCartItem
       dailyCosts: dailyCosts,
       daysWithOrders: daysWithOrders,
       averageCostPerDay: averageCost,
-      totalCalories: getWeeklyCalories(),
     );
   }
 }
 
 /// Main weekly cart provider
 final weeklyCartProvider = StateNotifierProvider<WeeklyCartNotifier, Map<DateTime, List<WeeklyCartItem>>>(
-  (ref) => WeeklyCartNotifier(),
+  (ref) => WeeklyCartNotifier(ref),
 );
 
 /// Derived provider for weekly total

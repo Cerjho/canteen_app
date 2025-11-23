@@ -21,21 +21,10 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   TransactionFilter _filter = TransactionFilter.all;
 
   @override
-  void initState() {
-    super.initState();
-    // Listen to global date refresh and rebuild when day changes so
-    // any `DateTime.now()` fallbacks refresh in the UI.
-      ref.listenManual<DateTime?>(
-        dateRefreshProvider,
-        (previous, next) {
-          // simply rebuild when the day changes
-          setState(() {});
-        },
-      );
-  }
-
-  @override
   Widget build(BuildContext context) {
+    // Watch dateRefreshProvider to ensure rebuild when date changes
+    ref.watch(dateRefreshProvider);
+    
     final parentAsync = ref.watch(currentParentProvider);
     return parentAsync.when(
       data: (parent) {

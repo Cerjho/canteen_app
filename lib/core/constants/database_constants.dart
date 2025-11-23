@@ -61,7 +61,9 @@ class DatabaseConstants {
   /// Field name for available days (menu items)
   static const String availableDays = 'available_days';
   
-  /// Field name for published status
+  /// @deprecated Field 'is_published' no longer exists in schema
+  /// All menus are immediately available (no publishing concept)
+  @Deprecated('Field removed from schema - all menus are now immediately available')
   static const String isPublished = 'is_published';
   
   /// Field name for creation timestamp
@@ -73,13 +75,14 @@ class DatabaseConstants {
   /// Field name for calculated timestamp (analytics)
   static const String calculatedAt = 'calculated_at';
   
-  /// Field name for order date
-  static const String orderDate = 'order_date';
+  /// Field name for delivery date
+  static const String deliveryDate = 'delivery_date';
   
   /// Field name for request date
   static const String requestDate = 'request_date';
   
-  /// Field name for published date
+  /// @deprecated Field 'published_at' no longer exists in schema
+  @Deprecated('Field removed from schema - no publishing concept')
   static const String publishedAt = 'published_at';
   
   /// Field name for status
@@ -137,7 +140,8 @@ class DatabaseConstants {
   /// Field name for gluten-free status
   static const String isGlutenFree = 'is_gluten_free';
   
-  /// Field name for stock quantity
+  /// @deprecated Field 'stock_quantity' no longer exists in schema
+  @Deprecated('Field removed from schema')
   static const String stockQuantity = 'stock_quantity';
 
   // ==================== ORDER FIELDS ====================
@@ -169,15 +173,25 @@ class DatabaseConstants {
   // ==================== WEEKLY MENU FIELDS ====================
   
   /// Field name for week start date
+  static const String weekStart = 'week_start';
+  
+  /// @deprecated Use 'weekStart' instead
+  @Deprecated('Use weekStart instead - field renamed in schema')
   static const String weekStartDate = 'week_start_date';
   
-  /// Field name for menu by day structure
+  /// Field name for menu items by day structure (JSONB)
+  static const String menuItemsByDay = 'menu_items_by_day';
+  
+  /// @deprecated Use 'menuItemsByDay' instead
+  @Deprecated('Use menuItemsByDay instead - field renamed in schema')
   static const String menuByDay = 'menu_by_day';
   
-  /// Field name for copied from week
+  /// @deprecated Field 'copied_from_week' no longer exists in schema
+  @Deprecated('Field removed from schema')
   static const String copiedFromWeek = 'copied_from_week';
   
-  /// Field name for published by (admin ID)
+  /// @deprecated Field 'published_by' no longer exists in schema
+  @Deprecated('Field removed from schema - no publishing concept')
   static const String publishedBy = 'published_by';
 
   // ==================== DATABASE OPERATION LIMITS ====================

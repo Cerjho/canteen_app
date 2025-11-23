@@ -31,8 +31,11 @@ class ParentTransaction {
       amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
       balanceBefore: (map['balance_before'] as num?)?.toDouble(),
       balanceAfter: (map['balance_after'] as num?)?.toDouble(),
-      orderIds: (map['order_ids'] as List?)?.cast<String>() ?? [],
-      reason: map['reason'] as String? ?? '',
+      orderIds: (map['order_ids'] as List?)?.cast<String>()
+              ?? (map['reference_id'] != null ? <String>[map['reference_id'] as String] : <String>[]),
+      reason: (map['reason'] as String?)
+              ?? (map['description'] as String?)
+              ?? ((map['type'] as String?) == 'debit' ? 'single_order' : (map['type'] as String? ?? '')),
       createdAt: map['created_at'] != null 
           ? DateTime.parse(map['created_at'] as String)
           : DateTime.now(),

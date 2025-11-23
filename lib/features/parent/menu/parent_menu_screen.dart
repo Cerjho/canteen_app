@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -6,14 +5,11 @@ import 'package:responsive_builder/responsive_builder.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../../../shared/utils/date_refresh_controller.dart';
-import '../../../core/providers/date_refresh_provider.dart';
 import '../../../core/models/menu_item.dart';
 import '../../../core/models/weekly_menu.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/selected_student_provider.dart';
-import '../../../core/providers/cart_provider.dart';
-import '../../../core/providers/day_of_order_provider.dart';
 import '../../../core/providers/weekly_cart_provider.dart';
 import '../../../shared/components/loading_indicator.dart';
 import '../cart/cart_screen.dart';
@@ -54,8 +50,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   
-  // Cart mode: 'daily' or 'weekly' (only for advance orders)
-  String _cartMode = 'weekly';
+  // Cart mode toggle removed; behavior is derived from selected date (today vs future)
   
   // Calendar state
   late DateTime _focusedDay;
@@ -83,17 +78,14 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
     // Initialize calendar selection from centralized date provider so the
     // widget doesn't capture a stale DateTime at declaration time.
     final now = ref.read(dateRefreshProvider);
-  final today = DateTime(now.year, now.month, now.day);
-  _focusedDay = today;
+    final today = DateTime(now.year, now.month, now.day);
+    _focusedDay = today;
     _selectedDay = DateTime(now.year, now.month, now.day);
     _dateController = DateRefreshController(onDayChanged: () {
       if (mounted) onDayChanged();
     });
     _dateController.start();
-    // Ensure Riverpod-driven date changes also rebuild this screen.
-    ref.listenManual<DateTime?>(dateRefreshProvider, (_, __) {
-      if (mounted) onDayChanged();
-    });
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_isReminderTime()) {
         final nextMonday = _getNextMonday();
@@ -112,7 +104,6 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
                 setState(() {
                   _selectedDay = nextMonday;
                   _focusedDay = nextMonday;
-                  _cartMode = 'weekly';
                 });
               },
             ),
@@ -168,8 +159,8 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
 
   // Get items scheduled for selected day from weekly menu
   List<MenuItem> _getScheduledItems(List<MenuItem> allMenuItems, WeeklyMenu? weeklyMenu) {
-    // If no menu published, return empty list
-    if (weeklyMenu == null || !weeklyMenu.isPublished) {
+    // If no menu exists, return empty list
+    if (weeklyMenu == null) {
       return [];
     }
     
@@ -177,7 +168,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
     final dayName = DateFormat('EEEE').format(_selectedDay);
     
     // Get menu for this day
-    final dayMenu = weeklyMenu.menuByDay[dayName];
+    final dayMenu = weeklyMenu.menuItemsByDay[dayName];
     if (dayMenu == null) {
       return [];
     }
@@ -243,8 +234,8 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
       // Clamp focusedDay to today or later
       _focusedDay = selectedDay.isBefore(today) ? today : selectedDay;
     });
-    // Show helpful tip when selecting today (day-of order) in daily mode only
-    if (selected == today && _cartMode == 'daily') {
+    // Show helpful tip when selecting today (day-of order)
+    if (selected == today) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('📢 Same-day order requires admin approval (subject to availability)'),
@@ -264,6 +255,9 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
       designSize: const Size(360, 690), // Base design size
       minTextAdapt: true,
     );
+
+    // Watch dateRefreshProvider to ensure rebuild when date changes
+    ref.watch(dateRefreshProvider);
 
     // Student chip selector UI
     final parentStudentsAsync = ref.watch(parentStudentsProvider);
@@ -333,6 +327,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
       ),
     );
 
+  // Orientation is checked within OrientationBuilder
     return ResponsiveBuilder(
       builder: (context, sizingInformation) {
         // Determine device type
@@ -341,8 +336,10 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
         final isMobile = deviceType == DeviceScreenType.mobile;
         final isTablet = deviceType == DeviceScreenType.tablet;
         final isDesktop = deviceType == DeviceScreenType.desktop;
+  // master-detail still handled inside OrientationBuilder
 
         return Scaffold(
+          // Put back the top header AppBar for all layouts
           appBar: _buildAppBar(isMobile),
           body: SafeArea(
             child: Column(
@@ -351,13 +348,19 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
                 Expanded(
                   child: OrientationBuilder(
                     builder: (context, orientation) {
-                      if (isDesktop || (isTablet && orientation == Orientation.landscape)) {
+                      final isMaster = isDesktop || (isTablet && orientation == Orientation.landscape);
+                      if (isMaster) {
                         // Master-detail layout for desktop/tablet landscape
                         return _buildMasterDetailLayout(screenWidth, orientation);
-                      } else {
-                        // Single pane layout for mobile/tablet portrait
-                        return _buildSinglePaneLayout(isMobile, isTablet, screenWidth, orientation);
                       }
+                      // Single pane layout with collapsing header
+                      return CustomScrollView(
+                        controller: _scrollController,
+                        slivers: [
+                          _buildCollapsingSliverAppBar(isMobile),
+                          _buildMenuSliver(screenWidth, orientation),
+                        ],
+                      );
                     },
                   ),
                 ),
@@ -365,25 +368,55 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
             ),
           ),
           // Bottom navigation is handled by parent_app.dart at the app level
-          floatingActionButton: _orderMode == 'dayOf' ? _buildSubmitButton() : null,
+          // Day-of submit FAB removed; today adds to Cart directly
+          floatingActionButton: null,
         );
       },
     );
   }
 
+  // Collapsing SliverAppBar containing calendar and search bar
+  Widget _buildCollapsingSliverAppBar(bool isMobile) {
+    // top Scaffold AppBar handles title now
+
+  final double chipsHeight = isMobile ? 44.h : 48.h;
+  // Shrink expanded height to hug content; add a little headroom to avoid clipping
+  final bool isDayOf = _orderMode == 'dayOf';
+  final double expandedHeight = isMobile
+    ? (isDayOf ? 240.h : 196.h)
+    : (isDayOf ? 270.h : 230.h);
+
+    return SliverAppBar(
+      pinned: true,
+      floating: false,
+      primary: false, // we have a top Scaffold AppBar already
+      toolbarHeight: 0, // no internal toolbar to avoid double headers
+      expandedHeight: expandedHeight,
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(chipsHeight),
+        child: _buildCategoryChips(isMobile),
+      ),
+      flexibleSpace: FlexibleSpaceBar(
+        collapseMode: CollapseMode.pin,
+        background: Material(
+          color: Theme.of(context).colorScheme.surface,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildCalendar(isMobile),
+              _buildSearchBar(isMobile),
+              _buildDateModeWarning(),
+              // Small spacer to separate warning banner (if visible) from chips below
+              SizedBox(height: isDayOf ? 10.h : 2.h),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // AppBar with responsive design
   PreferredSizeWidget _buildAppBar(bool isMobile) {
-    // Watch cart item count for badge (for advance orders)
-    final cartItemCount = ref.watch(cartItemCountProvider);
-    // Watch day-of order count for badge
-    final dayOfOrderCount = ref.watch(dayOfOrderItemCountProvider);
-    // Watch weekly cart item count
-    final weeklyCartItemCount = ref.watch(weeklyCartItemCountProvider);
-    
-    final badgeCount = _orderMode == 'advance' 
-        ? (_cartMode == 'daily' ? cartItemCount : weeklyCartItemCount)
-        : dayOfOrderCount;
-
     return AppBar(
       title: Text(
         'Canteen Menu',
@@ -393,196 +426,84 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
         ),
       ),
       actions: [
-        // Cart mode toggle (always visible)
-        PopupMenuButton<String>(
-          icon: Icon(
-            _cartMode == 'daily' ? Icons.today : Icons.view_week,
-            size: isMobile ? 22.sp : 24.sp,
-          ),
-          tooltip: 'Cart Mode',
-            onSelected: (mode) {
-              setState(() {
-                _cartMode = mode;
-              });
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'daily',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.today,
-                      size: 20.sp,
-                      color: _cartMode == 'daily' 
-                          ? Theme.of(context).colorScheme.primary 
-                          : null,
-                    ),
-                    SizedBox(width: 12.w),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Daily Cart',
-                          style: TextStyle(
-                            fontSize: 14.sp,
-                            fontWeight: _cartMode == 'daily' 
-                                ? FontWeight.bold 
-                                : FontWeight.normal,
-                          ),
-                        ),
-                        Text(
-                          'Order day by day',
-                          style: TextStyle(
-                            fontSize: 11.sp,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_cartMode == 'daily') ...[
-                      const Spacer(),
-                      Icon(
-                        Icons.check,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 18.sp,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'weekly',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.view_week,
-                      size: 20.sp,
-                      color: _cartMode == 'weekly' 
-                          ? Theme.of(context).colorScheme.primary 
-                          : null,
-                    ),
-                    SizedBox(width: 12.w),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Weekly Bundle',
-                          style: TextStyle(
-                            fontSize: 14.sp,
-                            fontWeight: _cartMode == 'weekly' 
-                                ? FontWeight.bold 
-                                : FontWeight.normal,
-                          ),
-                        ),
-                        Text(
-                          'Plan Mon-Fri at once',
-                          style: TextStyle(
-                            fontSize: 11.sp,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_cartMode == 'weekly') ...[
-                      const Spacer(),
-                      Icon(
-                        Icons.check,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 18.sp,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        
         SizedBox(width: 8.w),
-        
-        // Cart/Order icon with badge
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            IconButton(
-              icon: Icon(
-                _orderMode == 'advance'
-                    ? Icons.shopping_cart
-                    : Icons.pending_actions,
-                size: isMobile ? 22.sp : 24.sp,
-              ),
-              onPressed: () {
-                if (_orderMode == 'advance') {
-                  // Navigate to appropriate cart screen
-                  if (_cartMode == 'daily') {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const CartScreen()),
-                    );
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => WeeklyCartScreen(
-                          weekStartDate: _selectedDay,
-                        ),
-                      ),
-                    );
-                  }
-                } else {
-                  // Show day-of orders
-                  _showDayOfOrdersDialog();
-                }
-              },
-              tooltip: _orderMode == 'advance' 
-                  ? (_cartMode == 'daily' ? 'Daily Cart' : 'Weekly Cart')
-                  : 'Day-of Orders',
-            ),
-            // Badge for item count
-            if (badgeCount > 0)
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: EdgeInsets.all(2.w),
-                  decoration: BoxDecoration(
-                    color: _orderMode == 'advance' ? Colors.red : Colors.orange,
-                    borderRadius: BorderRadius.circular(10.r),
-                  ),
-                  constraints: BoxConstraints(
-                    minWidth: 16.w,
-                    minHeight: 16.h,
-                  ),
-                  child: Text(
-                    badgeCount > 99 ? '99+' : '$badgeCount',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10.sp,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        _buildCartAction(isMobile),
         SizedBox(width: 8.w),
       ],
     );
   }
 
-  // Submit button for day-of orders
-  Widget? _buildSubmitButton() {
-    final dayOfOrderCount = ref.watch(dayOfOrderItemCountProvider);
-    
-    if (dayOfOrderCount == 0) return null;
+  // Shared Cart action with badge
+  Widget _buildCartAction(bool isMobile) {
+    final cartItemCount = ref.watch(cartItemCountProvider);
+    final weeklyCartItemCount = ref.watch(weeklyCartItemCountProvider);
+    final now = ref.watch(dateRefreshProvider);
+    final today = DateTime(now.year, now.month, now.day);
+    final isToday = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day) == today;
+    final badgeCount = isToday ? cartItemCount : weeklyCartItemCount;
 
-    return FloatingActionButton.extended(
-      onPressed: _submitDayOfOrders,
-      backgroundColor: Colors.purple[700],
-      icon: const Icon(Icons.send),
-      label: Text('Submit for Approval ($dayOfOrderCount)'),
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          icon: Icon(Icons.shopping_cart, size: isMobile ? 22.sp : 24.sp),
+          onPressed: () {
+            final now = ref.read(dateRefreshProvider);
+            final today = DateTime(now.year, now.month, now.day);
+            final isToday = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day) == today;
+            if (isToday) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CartScreen(),
+                  fullscreenDialog: true,
+                ),
+              );
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => WeeklyCartScreen(weekStartDate: _selectedDay),
+                  fullscreenDialog: true,
+                ),
+              );
+            }
+          },
+          tooltip: 'Cart',
+        ),
+        if (badgeCount > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: IgnorePointer(
+              ignoring: true, // ensure taps pass through to the cart button
+              child: Container(
+                padding: EdgeInsets.all(2.w),
+                decoration: BoxDecoration(
+                  color: _orderMode == 'advance' ? Colors.red : Colors.orange,
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+                constraints: BoxConstraints(
+                  minWidth: 16.w,
+                  minHeight: 16.h,
+                ),
+                child: Text(
+                  badgeCount > 99 ? '99+' : '$badgeCount',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
+
+  // Day-of approval flow removed in favor of today's cart
 
   // Master-detail layout for desktop and tablet landscape
   Widget _buildMasterDetailLayout(double screenWidth, Orientation orientation) {
@@ -599,9 +520,8 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
           flex: _selectedItem == null ? 3 : 2,
           child: Column(
             children: [
-              // Calendar (only in weekly mode)
-              if (_cartMode == 'weekly')
-                _buildCalendar(false),
+              // Calendar always visible; behavior derived by selected date
+              _buildCalendar(false),
               
               // Search bar
               _buildSearchBar(false),
@@ -675,35 +595,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
     );
   }
 
-  // Single pane layout for mobile and tablet portrait
-  Widget _buildSinglePaneLayout(
-    bool isMobile,
-    bool isTablet,
-    double screenWidth,
-    Orientation orientation,
-  ) {
-    return Column(
-      children: [
-        // Compact calendar for week browsing (only in weekly mode)
-        if (_cartMode == 'weekly')
-          _buildCalendar(isMobile),
-        
-        // Search bar
-        _buildSearchBar(isMobile),
-        
-        // Date mode warning (if date invalid for selected order mode)
-        _buildDateModeWarning(),
-        
-        // Category chips for filtering
-        _buildCategoryChips(isMobile),
-        
-        // Menu items grid
-        Expanded(
-          child: _buildMenuGrid(screenWidth, orientation),
-        ),
-      ],
-    );
-  }
+  // Single pane layout replaced by sliver-based layout in build()
 
   // Compact weekly calendar
   Widget _buildCalendar(bool isMobile) {
@@ -840,10 +732,6 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
   }) {
     final isSelected = isSameDay(day, _selectedDay);
     final isWeekend = day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
-  final now = ref.read(dateRefreshProvider);
-  final today = DateTime(now.year, now.month, now.day);
-  final d = DateTime(day.year, day.month, day.day);
-  final isPast = d.isBefore(today);
 
     Color? backgroundColor;
     Color? textColor;
@@ -896,15 +784,9 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
   Widget _buildSearchBar(bool isMobile) {
     final theme = Theme.of(context);
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
+      padding: EdgeInsets.fromLTRB(12.w, 6.h, 12.w, 2.h),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        border: Border(
-          bottom: BorderSide(
-            color: theme.dividerColor,
-            width: 1,
-          ),
-        ),
       ),
       child: TextField(
         controller: _searchController,
@@ -929,7 +811,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
           ),
           filled: true,
           fillColor: theme.colorScheme.surfaceContainerHighest,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+          contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
         ),
         style: TextStyle(fontSize: isMobile ? 14.sp : 16.sp),
         onChanged: (value) {
@@ -946,15 +828,11 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
   Widget _buildCategoryChips(bool isMobile) {
     return Container(
       height: isMobile ? 36.h : 40.h,
-      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+      // Add a tiny top padding only when the day-of warning banner is visible
+      padding: EdgeInsets.fromLTRB(8.w, _orderMode == 'dayOf' ? 4.h : 0, 8.w, 0),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        border: Border(
-          bottom: BorderSide(
-            color: Colors.grey[300]!,
-            width: 1,
-          ),
-        ),
+        // remove bottom border to tighten space with the list below
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -998,7 +876,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
     );
   }
 
-  // Add item to cart or day-of order based on mode
+  // Add item to cart based on selected date (today -> daily cart, future -> weekly cart)
   void _addToOrder(MenuItem item, {int quantity = 1}) {
     final selectedStudent = ref.read(selectedStudentProvider);
     if (selectedStudent == null) {
@@ -1010,215 +888,78 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
       );
       return;
     }
-    if (_orderMode == 'advance') {
-      if (_cartMode == 'daily') {
-        // Add to regular daily cart with quantity, tagging student
-        for (int i = 0; i < quantity; i++) {
-          ref.read(cartProvider.notifier).addItem(
-            item,
-            studentId: selectedStudent.id,
-            studentName: selectedStudent.fullName,
-          );
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(quantity > 1 
-                ? 'Added $quantity x ${item.name} for ${selectedStudent.firstName}' 
-                : '${item.name} added for ${selectedStudent.firstName}'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-            action: SnackBarAction(
-              label: 'View Cart',
-              textColor: Colors.white,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CartScreen()),
-                );
-              },
-            ),
-          ),
-        );
-      } else {
-        // Add to weekly cart for selected date, tagging student
-        ref.read(weeklyCartProvider.notifier).addItemForDate(
-          item,
-          _selectedDay,
-          quantity: quantity,
-          studentId: selectedStudent.id,
-          studentName: selectedStudent.fullName,
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(quantity > 1 
-                ? 'Added $quantity x ${item.name} for ${selectedStudent.firstName} to ${_formatDate(_selectedDay)}' 
-                : '${item.name} added for ${selectedStudent.firstName} to ${_formatDate(_selectedDay)}'),
-            backgroundColor: Colors.purple,
-            duration: const Duration(seconds: 2),
-            action: SnackBarAction(
-              label: 'View Week',
-              textColor: Colors.white,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => WeeklyCartScreen(
-                      weekStartDate: _selectedDay,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } else {
-      // Add to day-of order with quantity, tagging student
+    final now = ref.read(dateRefreshProvider);
+    final today = DateTime(now.year, now.month, now.day);
+    final isToday = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day) == today;
+
+    if (isToday) {
+      // Add to daily cart
       for (int i = 0; i < quantity; i++) {
-        ref.read(dayOfOrderProvider.notifier).addItem(
-          item,
-          _selectedDay,
-          studentId: selectedStudent.id,
-          studentName: selectedStudent.fullName,
-        );
+        ref.read(cartProvider.notifier).addItem(
+              item,
+              studentId: selectedStudent.id,
+              studentName: selectedStudent.fullName,
+            );
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(quantity > 1
-              ? 'Added $quantity x ${item.name} for ${selectedStudent.firstName} to day-of order (${_formatDate(_selectedDay)})'
-              : '${item.name} added for ${selectedStudent.firstName} to day-of order (${_formatDate(_selectedDay)})'),
-          backgroundColor: Colors.orange,
+              ? 'Added $quantity x ${item.name} for ${selectedStudent.firstName}'
+              : '${item.name} added for ${selectedStudent.firstName}'),
+          backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
           action: SnackBarAction(
-            label: 'View Orders',
+            label: 'View Cart',
             textColor: Colors.white,
-            onPressed: _showDayOfOrdersDialog,
-          ),
-        ),
-      );
-    }
-  }
-
-  // Show day-of orders dialog
-  void _showDayOfOrdersDialog() {
-    final dayOfOrders = ref.read(dayOfOrderProvider);
-    
-    if (dayOfOrders.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No day-of orders yet'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Day-of Orders (Pending Approval)'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: dayOfOrders.length,
-            itemBuilder: (context, index) {
-              final order = dayOfOrders[index];
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange[100],
-                  child: const Icon(Icons.pending_actions, color: Colors.orange),
-                ),
-                title: Text(order.menuItem.name),
-                subtitle: Text(
-                  '${_formatDate(order.selectedDate)} • Qty: ${order.quantity} • ${FormatUtils.currency(order.menuItem.price * order.quantity)}',
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () {
-                    ref.read(dayOfOrderProvider.notifier).removeItem(order.id);
-                    Navigator.pop(context);
-                    _showDayOfOrdersDialog();
-                  },
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CartScreen(),
+                  fullscreenDialog: true,
                 ),
               );
             },
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _submitDayOfOrders();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purple[700],
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Submit for Approval'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Submit day-of orders for approval
-  Future<void> _submitDayOfOrders() async {
-    final currentUser = ref.read(currentUserProvider).value;
-    if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error: User not authenticated'),
-          backgroundColor: Colors.red,
-        ),
       );
-      return;
-    }
-
-    // TODO: Get student ID from parent - for now using parent ID
-    final studentId = currentUser.uid;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-
-    try {
-      await ref.read(dayOfOrderProvider.notifier).submitForApproval(
-            currentUser.uid,
-            studentId,
-          );
-
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Day-of orders submitted for admin approval!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
-        ),
+    } else {
+      // Add to weekly cart for selected date
+      ref.read(weeklyCartProvider.notifier).addItemForDate(
+        item,
+        _selectedDay,
+        quantity: quantity,
+        studentId: selectedStudent.id,
+        studentName: selectedStudent.fullName,
       );
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error submitting orders: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
+          content: Text(quantity > 1
+              ? 'Added $quantity x ${item.name} for ${selectedStudent.firstName} to ${_formatDate(_selectedDay)}'
+              : '${item.name} added for ${selectedStudent.firstName} to ${_formatDate(_selectedDay)}'),
+          backgroundColor: Colors.purple,
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'View Week',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => WeeklyCartScreen(weekStartDate: _selectedDay),
+                  fullscreenDialog: true,
+                ),
+              );
+            },
+          ),
         ),
       );
     }
   }
+
+  // Day-of dialog removed
+
+  // Day-of submission removed
 
   // Format date helper
   String _formatDate(DateTime date) {
@@ -1238,8 +979,8 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
       data: (allMenuItems) {
         return weeklyMenuAsync.when(
           data: (weeklyMenu) {
-            // Check if menu is published
-            if (weeklyMenu == null || !weeklyMenu.isPublished) {
+            // Check if menu exists
+            if (weeklyMenu == null) {
               return _buildNoMenuPublishedState();
             }
             
@@ -1263,11 +1004,9 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
                   return FoodCard(
                     item: item,
                     onTap: () {
-                      setState(() {
-                        _selectedItem = item;
-                      });
+                      _showAddToCartSheet(item);
                     },
-                    onAddToCart: (quantity) => _addToOrder(item, quantity: quantity),
+                    onAddToCart: () => _showAddToCartSheet(item),
                   );
                 },
               ),
@@ -1335,6 +1074,264 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // Sliver version of the menu list for collapsing layout
+  Widget _buildMenuSliver(double screenWidth, Orientation orientation) {
+    final menuItemsAsync = ref.watch(menuItemsProvider);
+    final weeklyMenuAsync = ref.watch(weeklyMenuForDateProvider(_selectedDay));
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+      sliver: SliverToBoxAdapter(
+        child: menuItemsAsync.when(
+          data: (allMenuItems) {
+            return weeklyMenuAsync.when(
+              data: (weeklyMenu) {
+                if (weeklyMenu == null) {
+                  return _buildNoMenuPublishedState();
+                }
+                final filteredItems = _getScheduledItems(allMenuItems, weeklyMenu);
+                if (filteredItems.isEmpty) {
+                  return _buildEmptyState();
+                }
+                // Use a normal ListView-like build via ListView inside SliverToBoxAdapter for simplicity
+                return ListView.separated(
+                  physics: const NeverScrollableScrollPhysics(),
+                  shrinkWrap: true,
+                  controller: _scrollController,
+                  itemCount: filteredItems.length,
+                  separatorBuilder: (_, __) => SizedBox(height: 8.h),
+                  itemBuilder: (context, index) {
+                    final item = filteredItems[index];
+                    return FoodCard(
+                      item: item,
+                      onTap: () => _showAddToCartSheet(item),
+                      onAddToCart: () => _showAddToCartSheet(item),
+                    );
+                  },
+                );
+              },
+              loading: () => const LoadingIndicator(text: 'Loading weekly menu...'),
+              error: (error, stack) => Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.w),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.error_outline, size: 64.w, color: Colors.red),
+                      SizedBox(height: 16.h),
+                      Text('Error loading weekly menu', style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 8.h),
+                      Text(error.toString(), style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]), textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          loading: () => const LoadingIndicator(text: 'Loading menu...'),
+          error: (error, stack) => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64.sp, color: Theme.of(context).colorScheme.error),
+                SizedBox(height: 16.h),
+                Text('Error loading menu', style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
+                SizedBox(height: 8.h),
+                Text(error.toString(), style: TextStyle(fontSize: 14.sp), textAlign: TextAlign.center),
+                SizedBox(height: 16.h),
+                ElevatedButton.icon(
+                  onPressed: () => ref.refresh(menuItemsProvider),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[700], foregroundColor: Colors.white),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  
+
+  /// Bottom sheet to collect quantity, delivery time slot, and special instructions
+  void _showAddToCartSheet(MenuItem item, {int prefillQuantity = 1}) {
+    final selectedStudent = ref.read(selectedStudentProvider);
+    if (selectedStudent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a student before adding items.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+  int qty = prefillQuantity.clamp(1, 20);
+  // Delivery time rules: Lunch is fixed at 12:00; Snacks/Drinks can choose
+  final bool isLunchItem = item.category.toLowerCase() == 'lunch';
+  String? timeSlot = isLunchItem ? '12:00' : '09:00';
+    final textController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            left: 16,
+            right: 16,
+            top: 16,
+          ),
+          child: StatefulBuilder(
+            builder: (context, setState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(FormatUtils.currency(item.price), style: TextStyle(color: Colors.grey[700])),
+                const SizedBox(height: 16),
+                // Quantity
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Quantity', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => setState(() => qty = (qty - 1).clamp(1, 20)),
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                        Text('$qty', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        IconButton(
+                          onPressed: () => setState(() => qty = (qty + 1).clamp(1, 20)),
+                          icon: const Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Delivery time
+                const Text('Delivery time', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                if (isLunchItem) ...[
+                  // Lunch has fixed delivery time
+                  Wrap(
+                    spacing: 8,
+                    children: const [
+                      Chip(label: Text('Lunch (12:00)')),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Lunch items are delivered at 12:00 by default.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ] else ...[
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Morning (9:00)'),
+                        selected: timeSlot == '09:00',
+                        onSelected: (_) => setState(() => timeSlot = '09:00'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Lunch (12:00)'),
+                        selected: timeSlot == '12:00',
+                        onSelected: (_) => setState(() => timeSlot = '12:00'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Afternoon (14:00)'),
+                        selected: timeSlot == '14:00',
+                        onSelected: (_) => setState(() => timeSlot = '14:00'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                // Special instructions
+                const Text('Special instructions', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: textController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g., less spicy, no peanuts',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.add_shopping_cart),
+                    label: const Text('Add to Cart'),
+                    onPressed: () {
+                      final now = ref.read(dateRefreshProvider);
+                      final today = DateTime(now.year, now.month, now.day);
+                      final isToday = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day) == today;
+
+                      if (isToday) {
+                        // Add to daily cart
+                        for (int i = 0; i < qty; i++) {
+                          ref.read(cartProvider.notifier).addItem(
+                                item,
+                                studentId: selectedStudent.id,
+                                studentName: selectedStudent.fullName,
+                                deliveryTime: timeSlot,
+                                specialInstructions: textController.text.trim().isEmpty ? null : textController.text.trim(),
+                              );
+                        }
+                      } else {
+                        // Add to weekly cart (advance ordering)
+                        ref.read(weeklyCartProvider.notifier).addItemForDate(
+                              item,
+                              _selectedDay,
+                              quantity: qty,
+                              studentId: selectedStudent.id,
+                              studentName: selectedStudent.fullName,
+                              time: timeSlot,
+                            );
+                      }
+
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              isToday
+                                  ? 'Added $qty × ${item.name} (${timeSlot ?? '-'}) for ${selectedStudent.firstName}'
+                                  : 'Added $qty × ${item.name} (${timeSlot ?? '-'}) for ${selectedStudent.firstName} to ${_formatDate(_selectedDay)}'),
+                          backgroundColor: isToday ? Colors.green : Colors.purple,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1465,11 +1462,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
             // Suggestions
             if (_searchQuery.isEmpty) ...[
               // Only show suggestions if at least one suggestion card will be shown
-              if (
-                (!(isReminderTime && isWeekend) && isWeekend && _cartMode == 'weekly') ||
-                (ref.watch(dateRefreshProvider).weekday != DateTime.saturday && ref.watch(dateRefreshProvider).weekday != DateTime.sunday) ||
-                !isWeekend
-              ) ...[
+              if (!(isWeekend && isReminderTime)) ...[
                 Text(
                   'Suggestions:',
                   style: TextStyle(
@@ -1481,7 +1474,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
                 SizedBox(height: 12.h),
               ],
               // Only show "Check Next Monday" if the orange reminder card is NOT shown
-              if (!(isReminderTime && isWeekend) && isWeekend && _cartMode == 'weekly')
+              if (isWeekend && !isReminderTime)
                 _buildSuggestionCard(
                   icon: Icons.skip_next,
                   title: 'Check Next Monday',
@@ -1493,7 +1486,7 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
                     });
                   },
                 ),
-              if (!(isReminderTime && isWeekend) && isWeekend && _cartMode == 'weekly')
+              if (isWeekend && !isReminderTime)
                 SizedBox(height: 8.h),
               // Show "Go to today" if today is a school day
         if (ref.watch(dateRefreshProvider).weekday != DateTime.saturday &&
@@ -1769,9 +1762,10 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
   Widget _buildDateModeWarning() {
     // Show info when user selects today (day-of order) AND in daily mode
     // Don't show in weekly bundle mode
-    if (_orderMode == 'dayOf' && _cartMode == 'daily') {
+    if (_orderMode == 'dayOf') {
       return Container(
-        margin: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        // Add a bit more breathing room below the banner so chips don't touch it
+        margin: EdgeInsets.fromLTRB(12.w, 8.h, 12.w, 14.h),
         padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
         decoration: BoxDecoration(
           color: Colors.orange[50],
@@ -1800,3 +1794,6 @@ class _ParentMenuScreenState extends ConsumerState<ParentMenuScreen> {
     return const SizedBox.shrink();
   }
 }
+
+// Sliver header delegate for sticky category chips (top-level)
+// (removed) _ChipsHeaderDelegate: replaced by SliverAppBar.bottom PreferredSize with sticky chips

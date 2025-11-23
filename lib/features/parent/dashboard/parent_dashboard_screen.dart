@@ -13,7 +13,6 @@ import '../wallet/wallet_screen.dart';
 import '../orders/orders_screen.dart';
 import '../student_link/edit_student_screen.dart';
 import '../../../shared/utils/date_refresh_controller.dart';
-import '../../../core/providers/date_refresh_provider.dart';
 
 /// Parent Dashboard Screen
 /// 
@@ -58,6 +57,42 @@ class _ParentDashboardScreenState
       body: currentUserAsync.when(
         data: (user) {
           if (user == null) {
+            // If we're authenticated but the profile hasn't streamed in yet,
+            // show a short "finishing setup" state with timeout & retry.
+            final signedIn = ref.watch(authStateProvider).value != null;
+            if (signedIn) {
+              return FutureBuilder<void>(
+                future: Future.delayed(const Duration(seconds: 10)),
+                builder: (_, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.done) {
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Setup taking longer than usual'),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: () => ref.refresh(currentUserProvider),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    );
+                  }
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 12),
+                          Text('Finishing account setup...'),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            }
             return _buildErrorState(context, 'User not found. Please sign in again.');
           }
           

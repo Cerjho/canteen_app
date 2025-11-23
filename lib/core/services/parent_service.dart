@@ -49,7 +49,7 @@ class ParentService implements IParentService {
   Stream<List<Parent>> getParents() {
     return _supabase
         .from('parents')
-        .stream(primaryKey: ['id'])
+  .stream(primaryKey: ['user_id'])
         .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => Parent.fromMap(item)).toList());
@@ -61,7 +61,7 @@ class ParentService implements IParentService {
   /// use `UserService.getUser(parent.userId)`.
   @override
   Future<Parent?> getParentById(String userId) async {
-    final data = await _supabase.from('parents').select().eq('id', userId).maybeSingle();
+  final data = await _supabase.from('parents').select().eq('user_id', userId).maybeSingle();
     if (data != null) {
       return Parent.fromMap(data);
     }
@@ -76,8 +76,8 @@ class ParentService implements IParentService {
   Stream<Parent?> getParentStream(String userId) {
     return _supabase
         .from('parents')
-        .stream(primaryKey: ['id'])
-        .eq('id', userId)
+  .stream(primaryKey: ['user_id'])
+  .eq('user_id', userId)
         .map((data) {
       if (data.isNotEmpty) {
         return Parent.fromMap(data.first);
@@ -142,8 +142,8 @@ class ParentService implements IParentService {
     final updatedParent = parent.copyWith(updatedAt: DateTime.now());
     await _supabase
         .from('parents')
-        .update(updatedParent.toMap())
-        .eq('id', parent.userId);
+  .update(updatedParent.toMap())
+  .eq('user_id', parent.userId);
   }
 
   /// Update parent contact information
@@ -161,7 +161,7 @@ class ParentService implements IParentService {
     if (address != null) updates['address'] = address;
     if (phone != null) updates['phone'] = phone;
 
-    await _supabase.from('parents').update(updates).eq('id', userId);
+  await _supabase.from('parents').update(updates).eq('user_id', userId);
   }
 
   /// Delete parent
@@ -173,7 +173,7 @@ class ParentService implements IParentService {
   /// - Unlinking all students
   @override
   Future<void> deleteParent(String userId) async {
-    await _supabase.from('parents').delete().eq('id', userId);
+  await _supabase.from('parents').delete().eq('user_id', userId);
   }
 
   /// Update parent balance
@@ -184,7 +184,7 @@ class ParentService implements IParentService {
     await _supabase.from('parents').update({
       'balance': newBalance,
       'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', userId);
+  }).eq('user_id', userId);
   }
 
   /// Add to parent balance
@@ -234,9 +234,10 @@ class ParentService implements IParentService {
       
       final updatedChildren = [...parent.children, studentId];
       await _supabase.from('parents').update({
-        'children': updatedChildren,
+        // Column name in DB is student_ids (text[])
+        'student_ids': updatedChildren,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', userId);
+      }).eq('user_id', userId);
     }
   }
 
@@ -250,9 +251,10 @@ class ParentService implements IParentService {
     if (parent != null) {
       final updatedChildren = parent.children.where((id) => id != studentId).toList();
       await _supabase.from('parents').update({
-        'children': updatedChildren,
+        // Column name in DB is student_ids (text[])
+        'student_ids': updatedChildren,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', userId);
+      }).eq('user_id', userId);
     }
   }
 
@@ -314,9 +316,9 @@ class ParentService implements IParentService {
   /// This is a client-side filter operation and may be slow for large datasets.
   @override
   Stream<List<Parent>> searchParents(String query) {
-    return _supabase
-        .from('parents')
-        .stream(primaryKey: ['id'])
+  return _supabase
+    .from('parents')
+    .stream(primaryKey: ['user_id'])
         .map((data) {
       final lowercaseQuery = query.toLowerCase();
       return data
@@ -377,7 +379,7 @@ class ParentService implements IParentService {
 
   /// Get parents count
   Future<int> getParentsCount() async {
-    final data = await _supabase.from('parents').select('id');
+  final data = await _supabase.from('parents').select('user_id');
     return (data as List).length;
   }
 

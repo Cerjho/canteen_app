@@ -17,7 +17,7 @@ import '../../../../core/utils/format_utils.dart';
 class FoodCard extends StatefulWidget {
   final MenuItem item;
   final VoidCallback onTap;
-  final Function(int quantity) onAddToCart; // Changed to accept quantity
+  final VoidCallback onAddToCart; // Bottom sheet handles quantity now
 
   const FoodCard({
     super.key,
@@ -31,25 +31,7 @@ class FoodCard extends StatefulWidget {
 }
 
 class _FoodCardState extends State<FoodCard> {
-  int _quantity = 1;
-  bool _showQuantitySelector = false;
-
-  void _handleAddToCart() {
-    if (_showQuantitySelector) {
-      // Add with selected quantity
-      widget.onAddToCart(_quantity);
-      // Reset
-      setState(() {
-        _quantity = 1;
-        _showQuantitySelector = false;
-      });
-    } else {
-      // Show quantity selector
-      setState(() {
-        _showQuantitySelector = true;
-      });
-    }
-  }
+  // Quantity selection is handled in the add-to-cart bottom sheet
 
   // Show allergens modal
   void _showAllergensModal(BuildContext context) {
@@ -162,9 +144,7 @@ class _FoodCardState extends State<FoodCard> {
     return Semantics(
       label:
           '${widget.item.name}, ${FormatUtils.currency(widget.item.price)}. '
-          '${widget.item.isVegan ? 'Vegan. ' : ''}'
-          '${widget.item.isVegetarian ? 'Vegetarian. ' : ''}'
-          '${widget.item.isGlutenFree ? 'Gluten-free. ' : ''}'
+          '${widget.item.dietaryLabels.isEmpty ? '' : '${widget.item.dietaryLabels.join(', ')}. '}'
           'Tap to view details',
       button: true,
       child: Card(
@@ -305,13 +285,41 @@ class _FoodCardState extends State<FoodCard> {
                     ),
                   ),
 
-                  // Dietary badges
-                  if (widget.item.isVegan)
-                    _buildInlineBadge('V+', Colors.green, 'Vegan'),
-                  if (widget.item.isVegetarian && !widget.item.isVegan)
-                    _buildInlineBadge('V', Colors.lightGreen, 'Vegetarian'),
-                  if (widget.item.isGlutenFree)
-                    _buildInlineBadge('GF', Colors.amber, 'Gluten-Free'),
+                  // Dietary badges - show all from dietaryLabels array
+                  ...widget.item.dietaryLabels.map((label) {
+                    // Determine badge appearance based on label
+                    String badgeText;
+                    Color badgeColor;
+                    
+                    if (label.toLowerCase() == 'vegan') {
+                      badgeText = 'V+';
+                      badgeColor = Colors.green;
+                    } else if (label.toLowerCase() == 'vegetarian') {
+                      badgeText = 'V';
+                      badgeColor = Colors.lightGreen;
+                    } else if (label.toLowerCase().contains('gluten')) {
+                      badgeText = 'GF';
+                      badgeColor = Colors.amber;
+                    } else if (label.toLowerCase().contains('halal')) {
+                      badgeText = 'H';
+                      badgeColor = Colors.teal;
+                    } else if (label.toLowerCase().contains('kosher')) {
+                      badgeText = 'K';
+                      badgeColor = Colors.blue;
+                    } else if (label.toLowerCase().contains('dairy-free')) {
+                      badgeText = 'DF';
+                      badgeColor = Colors.cyan;
+                    } else if (label.toLowerCase().contains('nut-free')) {
+                      badgeText = 'NF';
+                      badgeColor = Colors.brown;
+                    } else {
+                      // Generic badge for any other dietary label
+                      badgeText = label.length > 3 ? label.substring(0, 3).toUpperCase() : label.toUpperCase();
+                      badgeColor = Colors.purple;
+                    }
+                    
+                    return _buildInlineBadge(badgeText, badgeColor, label);
+                  }),
                   
                   // Allergen badge (clickable)
                   if (widget.item.allergens.isNotEmpty)
@@ -349,29 +357,6 @@ class _FoodCardState extends State<FoodCard> {
                     ),
                 ],
               ),
-              
-              SizedBox(height: 6.h),
-              
-              // Quick info row (calories only)
-              Row(
-                children: [
-                  if (widget.item.calories != null) ...[
-                    Icon(
-                      Icons.local_fire_department,
-                      size: 14.sp,
-                      color: Colors.orange,
-                    ),
-                    SizedBox(width: 3.w),
-                    Text(
-                      '${widget.item.calories}cal',
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
             ],
           ),
 
@@ -384,7 +369,7 @@ class _FoodCardState extends State<FoodCard> {
             children: [
               // Price
               Text(
-                FormatUtils.currency(widget.item.price * _quantity),
+                FormatUtils.currency(widget.item.price),
                 style: TextStyle(
                   fontSize: isMobile ? 18.sp : 20.sp,
                   fontWeight: FontWeight.bold,
@@ -392,10 +377,8 @@ class _FoodCardState extends State<FoodCard> {
                 ),
               ),
 
-              // Quantity selector or add button
-              _showQuantitySelector
-                  ? _buildQuantitySelector(theme, isMobile)
-                  : _buildAddButton(theme, isMobile),
+              // Add button (quantity handled in sheet)
+              _buildAddButton(theme, isMobile),
             ],
           ),
         ],
@@ -434,7 +417,7 @@ class _FoodCardState extends State<FoodCard> {
         color: theme.colorScheme.primary,
         borderRadius: BorderRadius.circular(isMobile ? 6.r : 8.r),
         child: InkWell(
-          onTap: _handleAddToCart,
+          onTap: widget.onAddToCart,
           borderRadius: BorderRadius.circular(isMobile ? 6.r : 8.r),
           child: Container(
             constraints: BoxConstraints(
@@ -453,76 +436,6 @@ class _FoodCardState extends State<FoodCard> {
           ),
         ),
       ),
-    );
-  }
-
-  // Quantity selector (expanded state)
-  Widget _buildQuantitySelector(ThemeData theme, bool isMobile) {
-    return Row(
-      children: [
-        IconButton(
-          onPressed: () {
-            if (_quantity > 1) {
-              setState(() => _quantity--);
-            }
-          },
-          icon: Icon(
-            Icons.remove_circle_outline,
-            size: isMobile ? 18.sp : 20.sp,
-          ),
-          constraints: BoxConstraints(
-            minWidth: isMobile ? 32.w : 36.w,
-            minHeight: isMobile ? 32.h : 36.h,
-          ),
-          padding: EdgeInsets.zero,
-        ),
-
-        Container(
-          width: isMobile ? 24.w : 28.w,
-          alignment: Alignment.center,
-          child: Text(
-            '$_quantity',
-            style: TextStyle(
-              fontSize: isMobile ? 13.sp : 14.sp,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-
-        IconButton(
-          onPressed: () {
-            if (_quantity < 10) {
-              setState(() => _quantity++);
-            }
-          },
-          icon: Icon(
-            Icons.add_circle_outline,
-            size: isMobile ? 18.sp : 20.sp,
-          ),
-          constraints: BoxConstraints(
-            minWidth: isMobile ? 32.w : 36.w,
-            minHeight: isMobile ? 32.h : 36.h,
-          ),
-          padding: EdgeInsets.zero,
-        ),
-
-        SizedBox(width: isMobile ? 2.w : 4.w),
-
-        IconButton(
-          onPressed: _handleAddToCart,
-          icon: Icon(
-            Icons.check_circle,
-            color: theme.colorScheme.primary,
-            size: isMobile ? 22.sp : 24.sp,
-          ),
-          constraints: BoxConstraints(
-            minWidth: isMobile ? 36.w : 40.w,
-            minHeight: isMobile ? 36.h : 40.h,
-          ),
-          padding: EdgeInsets.zero,
-          tooltip: 'Confirm and add to cart',
-        ),
-      ],
     );
   }
 }

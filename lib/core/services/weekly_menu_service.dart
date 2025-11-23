@@ -4,7 +4,7 @@ import '../models/weekly_menu.dart';
 import '../models/menu_item.dart';
 import '../interfaces/i_weekly_menu_service.dart';
 
-/// Weekly Menu Service - handles all WeeklyMenu-related Firestore operations
+/// Weekly Menu Service - handles all WeeklyMenu-related Supabase operations
 class WeeklyMenuService implements IWeeklyMenuService {
   final SupabaseClient _supabase;
   final Uuid _uuid;
@@ -16,25 +16,20 @@ class WeeklyMenuService implements IWeeklyMenuService {
   })  : _supabase = supabase ?? Supabase.instance.client,
         _uuid = uuid ?? const Uuid();
 
-  /// Get the current week's menu (or most recent published menu)
+  /// Get the current week's menu
   @override
   Stream<WeeklyMenu?> getCurrentWeeklyMenu() {
     final today = DateTime.now();
     final mondayOfWeek = _getMondayOfWeek(today);
-    final weekStartDate = _formatDate(mondayOfWeek);
+    final weekStart = _formatDate(mondayOfWeek);
 
     return _supabase
         .from('weekly_menus')
         .stream(primaryKey: ['id'])
+        .eq('week_start', weekStart)
         .map((data) {
-      // Filter by week_start_date and is_published
-      final filtered = data
-          .where((item) => 
-              item['week_start_date'] == weekStartDate && 
-              item['is_published'] == true)
-          .toList();
-      if (filtered.isEmpty) return null;
-      return WeeklyMenu.fromMap(filtered.first);
+      if (data.isEmpty) return null;
+      return WeeklyMenu.fromMap(data.first);
     });
   }
 
@@ -42,84 +37,90 @@ class WeeklyMenuService implements IWeeklyMenuService {
   @override
   Future<WeeklyMenu?> getWeeklyMenuByDate(DateTime date) async {
     final mondayOfWeek = _getMondayOfWeek(date);
-    final weekStartDate = _formatDate(mondayOfWeek);
+    final weekStart = _formatDate(mondayOfWeek);
 
     final data = await _supabase
         .from('weekly_menus')
         .select()
-        .eq('week_start_date', weekStartDate)
+        .eq('week_start', weekStart)
         .limit(1);
 
     if ((data as List).isEmpty) return null;
     return WeeklyMenu.fromMap((data as List).first);
   }
 
-  /// Get all published weekly menus (paginated)
+  /// Get all published weekly menus as a stream (filters by publish_status)
   @override
   Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit = 50}) {
     return _supabase
         .from('weekly_menus')
         .stream(primaryKey: ['id'])
-        .eq('is_published', true)
-        .order('week_start_date', ascending: false)
+        .eq('publish_status', PublishStatus.published)
+        .order('week_start', ascending: false)
         .limit(limit)
         .map((data) =>
             data.map((item) => WeeklyMenu.fromMap(item)).toList());
   }
 
-  /// Publish a new weekly menu (V2 with nested meal types)
+  /// Publish a weekly menu: upsert, set status, version, and snapshot
   @override
   Future<void> publishWeeklyMenu({
     required DateTime weekStartDate,
     required Map<String, Map<String, List<String>>> menuByDay,
-    String? publishedBy,
-    String? copiedFromWeek,
   }) async {
     final mondayOfWeek = _getMondayOfWeek(weekStartDate);
-    final weekStartDateStr = _formatDate(mondayOfWeek);
+    // Normalize input to match DB expectations (Mon-Fri only, lowercase meal keys)
+    final normalizedMenu = _normalizeMenuByDay(menuByDay);
 
     // Check if a menu already exists for this week
     final existing = await getWeeklyMenuByDate(mondayOfWeek);
     
     if (existing != null) {
-      // Update existing menu
-      final updated = existing.copyWith(
-        menuByDay: menuByDay,
-        copiedFromWeek: copiedFromWeek,
-        isPublished: true,
-        publishedAt: DateTime.now(),
-        publishedBy: publishedBy,
-        updatedAt: DateTime.now(),
-      );
+      // Increment version and mark as published
+      final newVersion = (existing.currentVersion) + 1;
       await _supabase
           .from('weekly_menus')
-          .update(updated.toMap())
+          .update({
+            'menu_items_by_day': normalizedMenu,
+            'publish_status': PublishStatus.published,
+            'current_version': newVersion,
+            'published_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', existing.id);
+
+      // Snapshot into versions table
+      await _supabase.from('weekly_menu_versions').insert({
+        'weekly_menu_id': existing.id,
+        'version': newVersion,
+        'week_start': _formatDate(mondayOfWeek),
+        'menu_items_by_day': normalizedMenu,
+        'created_by': _supabase.auth.currentUser?.id,
+      });
     } else {
-      // Create new menu
+      // Create new menu and mark as published (version = 1)
       final weeklyMenu = WeeklyMenu(
         id: _uuid.v4(),
-        weekStartDate: weekStartDateStr,
-        copiedFromWeek: copiedFromWeek,
-        menuByDay: menuByDay,
-        isPublished: true,
-        publishedAt: DateTime.now(),
-        publishedBy: publishedBy,
+        weekStart: mondayOfWeek,
+        menuItemsByDay: normalizedMenu,
         createdAt: DateTime.now(),
+        publishStatus: PublishStatus.published,
+        currentVersion: 1,
+        publishedAt: DateTime.now(),
       );
       await _supabase
           .from('weekly_menus')
           .insert(weeklyMenu.toMap());
-    }
-  }
 
-  /// Unpublish a weekly menu
-  @override
-  Future<void> unpublishWeeklyMenu(String menuId) async {
-    await _supabase.from('weekly_menus').update({
-      'is_published': false,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', menuId);
+      // Snapshot initial version
+      await _supabase.from('weekly_menu_versions').insert({
+        'weekly_menu_id': weeklyMenu.id,
+        'version': 1,
+        'week_start': _formatDate(mondayOfWeek),
+        'menu_items_by_day': normalizedMenu,
+        'created_by': _supabase.auth.currentUser?.id,
+      });
+    }
   }
 
   /// Delete a weekly menu
@@ -128,14 +129,15 @@ class WeeklyMenuService implements IWeeklyMenuService {
     await _supabase.from('weekly_menus').delete().eq('id', menuId);
   }
 
-  /// Update weekly menu data (without publishing)
+  /// Update weekly menu data (keeps menu in draft until published)
   @override
   Future<void> updateWeeklyMenu(
     String weekStartDate,
     Map<String, Map<String, List<String>>> menuByDay,
   ) async {
     final mondayOfWeek = _getMondayOfWeek(DateTime.parse(weekStartDate));
-    final weekStartDateStr = _formatDate(mondayOfWeek);
+    // Normalize input to match DB expectations (Mon-Fri only, lowercase meal keys)
+    final normalizedMenu = _normalizeMenuByDay(menuByDay);
     
     // Check if menu exists
     final existing = await getWeeklyMenuByDate(mondayOfWeek);
@@ -143,42 +145,116 @@ class WeeklyMenuService implements IWeeklyMenuService {
     if (existing != null) {
       // Update existing menu
       await _supabase.from('weekly_menus').update({
-        'menu_by_day': _convertMenuByDayToMap(menuByDay),
+        'menu_items_by_day': normalizedMenu,
+        'publish_status': PublishStatus.draft, // editing returns to draft until explicitly published
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', existing.id);
     } else {
-      // Create new unpublished menu (publishedAt is null for unpublished)
-      final weeklyMenu = WeeklyMenu(
-        id: _uuid.v4(),
-        weekStartDate: weekStartDateStr,
-        menuByDay: menuByDay,
-        isPublished: false,
-        publishedAt: null, // Null until published
-        createdAt: DateTime.now(),
-      );
-      await _supabase
-          .from('weekly_menus')
-          .insert(weeklyMenu.toMap());
+      // Insert new weekly menu if it doesn't exist (upsert behavior)
+      await _supabase.from('weekly_menus').insert({
+        'id': _uuid.v4(),
+        'week_start': _formatDate(mondayOfWeek),
+        'menu_items_by_day': normalizedMenu,
+        'publish_status': PublishStatus.draft,
+        'current_version': 0,
+        'created_at': DateTime.now().toIso8601String(),
+      });
     }
   }
-  
-  /// Convert menuByDay to Firestore-compatible Map
-  Map<String, dynamic> _convertMenuByDayToMap(Map<String, Map<String, List<String>>> menuByDay) {
-    return menuByDay.map((day, mealTypes) {
-      return MapEntry(day, mealTypes.map((mealType, items) {
-        return MapEntry(mealType, items);
-      }));
-    });
+
+  /// Unpublish a weekly menu by setting status to draft and clearing published_at
+  @override
+  Future<void> unpublishWeeklyMenu(DateTime weekStartDate) async {
+    final mondayOfWeek = _getMondayOfWeek(weekStartDate);
+    final existing = await getWeeklyMenuByDate(mondayOfWeek);
+    if (existing == null) return;
+    await _supabase.from('weekly_menus').update({
+      'publish_status': PublishStatus.draft,
+      'published_at': null,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', existing.id);
   }
 
-  /// Get menu items for a specific day and meal type from weekly menu (V2)
+  /// Get versions for a week (latest first)
+  @override
+  Future<List<Map<String, dynamic>>> getWeeklyMenuVersions(DateTime weekStartDate) async {
+    final mondayOfWeek = _getMondayOfWeek(weekStartDate);
+    final existing = await getWeeklyMenuByDate(mondayOfWeek);
+    if (existing == null) return [];
+    final data = await _supabase
+        .from('weekly_menu_versions')
+        .select()
+        .eq('weekly_menu_id', existing.id)
+        .order('version', ascending: false);
+    return List<Map<String, dynamic>>.from(data as List);
+  }
+
+  /// Revert content to a given version (status becomes draft until re-publish)
+  @override
+  Future<void> revertToVersion(DateTime weekStartDate, int version) async {
+    final mondayOfWeek = _getMondayOfWeek(weekStartDate);
+    final existing = await getWeeklyMenuByDate(mondayOfWeek);
+    if (existing == null) throw Exception('No weekly menu found for week');
+    final data = await _supabase
+        .from('weekly_menu_versions')
+        .select()
+        .eq('weekly_menu_id', existing.id)
+        .eq('version', version)
+        .limit(1);
+    if ((data as List).isEmpty) throw Exception('Version not found');
+    final versionRow = (data as List).first as Map<String, dynamic>;
+    final snapshot = Map<String, Map<String, List<String>>>.from(
+      (versionRow['menu_items_by_day'] as Map<String, dynamic>).map(
+        (k, v) => MapEntry(k, Map<String, List<String>>.from(
+          (v as Map<String, dynamic>).map((kk, vv) => MapEntry(kk, List<String>.from(vv as List)))))
+      )
+    );
+    await _supabase.from('weekly_menus').update({
+      'menu_items_by_day': snapshot,
+      'publish_status': PublishStatus.draft,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', existing.id);
+  }
+
+  /// Archive a weekly menu
+  @override
+  Future<void> archiveWeeklyMenu(DateTime weekStartDate) async {
+    final mondayOfWeek = _getMondayOfWeek(weekStartDate);
+    final existing = await getWeeklyMenuByDate(mondayOfWeek);
+    if (existing == null) return;
+    await _supabase.from('weekly_menus').update({
+      'publish_status': PublishStatus.archived,
+      'archived_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', existing.id);
+  }
+
+  // Normalize menu structure: keep only Monday–Friday, enforce lowercase meal keys
+  Map<String, Map<String, List<String>>> _normalizeMenuByDay(
+    Map<String, Map<String, List<String>>> input,
+  ) {
+    const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    final result = <String, Map<String, List<String>>>{};
+    for (final day in allowedDays) {
+      final dayMenu = input[day] ?? const <String, List<String>>{};
+      result[day] = {
+        'breakfast': List<String>.from(dayMenu['breakfast'] ?? const <String>[]),
+        'lunch': List<String>.from(dayMenu['lunch'] ?? const <String>[]),
+        'snack': List<String>.from(dayMenu['snack'] ?? const <String>[]),
+        'drinks': List<String>.from(dayMenu['drinks'] ?? const <String>[]),
+      };
+    }
+    return result;
+  }
+
+  /// Get menu items for a specific day and meal type from weekly menu
   @override
   Future<List<MenuItem>> getMenuItemsForDay(
     WeeklyMenu weeklyMenu,
     String day, {
     String? mealType,
   }) async {
-    final dayMenu = weeklyMenu.menuByDay[day];
+    final dayMenu = weeklyMenu.menuItemsByDay[day];
     if (dayMenu == null || dayMenu.isEmpty) return [];
 
     // Get all item IDs for the day (all meal types if not specified)
@@ -205,7 +281,9 @@ class WeeklyMenuService implements IWeeklyMenuService {
       items.addAll(
           (data as List).map((item) => MenuItem.fromMap(item)).toList());
     }
-    return items;
+    
+    // Filter out unavailable items (Fix Issue #4)
+    return items.where((item) => item.isAvailable).toList();
   }
 
   /// Update menu items' availableDays field when publishing
@@ -235,7 +313,7 @@ class WeeklyMenuService implements IWeeklyMenuService {
     }
 
     // Update each menu item's availableDays field
-    // Note: Supabase doesn't have batch operations like Firestore
+    // Note: Supabase doesn't have batch operations like Firebase Firestore
     // We'll use bulk update approach instead
     final List<Map<String, dynamic>> updates = [];
 
@@ -262,8 +340,8 @@ class WeeklyMenuService implements IWeeklyMenuService {
     }
   }
 
-  /// Copy menu from previous week to a new week (V2)
-  /// Creates an UNPUBLISHED copy that must be manually published
+  /// Copy menu from previous week to a new week
+  /// Creates a new menu or updates existing menu (immediately available - no publishing concept)
   @override
   Future<void> copyMenuFromPreviousWeek(DateTime targetWeekStart) async {
     final targetMonday = _getMondayOfWeek(targetWeekStart);
@@ -277,24 +355,19 @@ class WeeklyMenuService implements IWeeklyMenuService {
 
     // Check if menu already exists for target week
     final existing = await getWeeklyMenuByDate(targetMonday);
-    final targetWeekStartStr = _formatDate(targetMonday);
     
     if (existing != null) {
-      // Update existing menu (keep current published state)
+      // Update existing menu
       await _supabase.from('weekly_menus').update({
-        'menu_by_day': _convertMenuByDayToMap(previousMenu.menuByDay),
-        'copied_from_week': previousMenu.weekStartDate,
+        'menu_items_by_day': previousMenu.menuItemsByDay,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', existing.id);
     } else {
-      // Create new UNPUBLISHED menu copy
+      // Create new menu copy
       final weeklyMenu = WeeklyMenu(
         id: _uuid.v4(),
-        weekStartDate: targetWeekStartStr,
-        copiedFromWeek: previousMenu.weekStartDate,
-        menuByDay: previousMenu.menuByDay,
-        isPublished: false, // NOT auto-published
-        publishedAt: null, // Null until manually published
+        weekStart: targetMonday,
+        menuItemsByDay: previousMenu.menuItemsByDay,
         createdAt: DateTime.now(),
       );
       await _supabase
@@ -303,14 +376,13 @@ class WeeklyMenuService implements IWeeklyMenuService {
     }
   }
 
-  /// Get weekly menu history (past published menus)
+  /// Get weekly menu history (all menus regardless of status)
   @override
   Future<List<WeeklyMenu>> getWeeklyMenuHistory({int limit = 10}) async {
     final data = await _supabase
         .from('weekly_menus')
         .select()
-        .eq('is_published', true)
-        .order('week_start_date', ascending: false)
+        .order('week_start', ascending: false)
         .limit(limit);
 
     return (data as List)
@@ -318,14 +390,13 @@ class WeeklyMenuService implements IWeeklyMenuService {
         .toList();
   }
 
-  /// Stream weekly menu history
+  /// Stream weekly menu history (all menus - no publishing filter)
   @override
   Stream<List<WeeklyMenu>> streamWeeklyMenuHistory({int limit = 50}) {
     return _supabase
         .from('weekly_menus')
         .stream(primaryKey: ['id'])
-        .eq('is_published', true)
-        .order('week_start_date', ascending: false)
+        .order('week_start', ascending: false)
         .limit(limit)
         .map((data) =>
             data.map((item) => WeeklyMenu.fromMap(item)).toList());
@@ -337,7 +408,7 @@ class WeeklyMenuService implements IWeeklyMenuService {
     final data = await _supabase
         .from('weekly_menus')
         .select()
-        .eq('week_start_date', weekStartDate)
+        .eq('week_start', weekStartDate)
         .limit(1);
 
     if ((data as List).isEmpty) return null;
@@ -350,7 +421,7 @@ class WeeklyMenuService implements IWeeklyMenuService {
     return _supabase
         .from('weekly_menus')
         .stream(primaryKey: ['id'])
-        .eq('week_start_date', weekStartDate)
+        .eq('week_start', weekStartDate)
         .limit(1)
         .map((data) {
       if (data.isEmpty) return null;
@@ -389,6 +460,81 @@ class WeeklyMenuService implements IWeeklyMenuService {
       'isValid': errors.isEmpty,
       'errors': errors,
       'warnings': warnings,
+    };
+  }
+  
+  /// Validate menu items availability (Fix Issue #4)
+  /// Returns a map of unavailable item IDs found in the menu
+  Future<Map<String, dynamic>> validateMenuItemsAvailability(
+    Map<String, Map<String, List<String>>> menuByDay
+  ) async {
+    final warnings = <String>[];
+    final unavailableItemIds = <String>[];
+    
+    // Collect all unique item IDs
+    final allItemIds = <String>{};
+    for (var dayEntry in menuByDay.entries) {
+      for (var mealTypeEntry in dayEntry.value.entries) {
+        allItemIds.addAll(mealTypeEntry.value);
+      }
+    }
+    
+    if (allItemIds.isEmpty) {
+      return {
+        'isValid': true,
+        'warnings': warnings,
+        'unavailableItemIds': unavailableItemIds,
+      };
+    }
+    
+    // Fetch items and check availability
+    final items = <MenuItem>[];
+    const inQueryLimit = 100;
+    final itemIdsList = allItemIds.toList();
+    
+    for (int i = 0; i < itemIdsList.length; i += inQueryLimit) {
+      final batch = itemIdsList.skip(i).take(inQueryLimit).toList();
+      final data = await _supabase
+          .from('menu_items')
+          .select()
+          .inFilter('id', batch);
+      items.addAll(
+          (data as List).map((item) => MenuItem.fromMap(item)).toList());
+    }
+    
+    // Build a map of item ID to availability
+    final itemAvailability = <String, bool>{};
+    final itemNames = <String, String>{};
+    for (var item in items) {
+      itemAvailability[item.id] = item.isAvailable;
+      itemNames[item.id] = item.name;
+    }
+    
+    // Check each item in the menu
+    for (var dayEntry in menuByDay.entries) {
+      final day = dayEntry.key;
+      for (var mealTypeEntry in dayEntry.value.entries) {
+        final mealType = mealTypeEntry.key;
+        final displayName = MealType.displayNames[mealType] ?? mealType;
+        
+        for (var itemId in mealTypeEntry.value) {
+          final isAvailable = itemAvailability[itemId];
+          if (isAvailable == false) {
+            final itemName = itemNames[itemId] ?? 'Unknown Item';
+            warnings.add('$day - $displayName: "$itemName" is unavailable');
+            unavailableItemIds.add(itemId);
+          } else if (isAvailable == null) {
+            warnings.add('$day - $displayName: Item ID $itemId not found in database');
+            unavailableItemIds.add(itemId);
+          }
+        }
+      }
+    }
+    
+    return {
+      'isValid': unavailableItemIds.isEmpty,
+      'warnings': warnings,
+      'unavailableItemIds': unavailableItemIds,
     };
   }
 

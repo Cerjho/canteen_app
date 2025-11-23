@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/providers/user_providers.dart';
 import '../../../core/providers/transaction_providers.dart';
+import '../../../core/providers/auth_providers.dart';
+import '../../../core/models/topup.dart';
 import 'transactions_screen.dart';
 import '../../../core/providers/date_refresh_provider.dart';
 
@@ -28,16 +31,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   // filters removed; navigation to full transactions screen via View All
 
   @override
-  void initState() {
-    super.initState();
-      ref.listenManual<DateTime?>(dateRefreshProvider, (previous, next) {
-        if (mounted) setState(() {});
-      });
-  }
-
-  @override
   Widget build(BuildContext context) {
-  return Scaffold(
+    // Watch dateRefreshProvider to ensure rebuild when date changes
+    ref.watch(dateRefreshProvider);
+    
+    return Scaffold(
       appBar: AppBar(
         title: const Text('Wallet'),
         actions: [
@@ -435,60 +433,147 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   /// Show top-up dialog
   void _showTopUpDialog(BuildContext context) {
     final amountController = TextEditingController();
-    String selectedMethod = 'cash';
+    final referenceController = TextEditingController();
+    final notesController = TextEditingController();
+    PaymentMethod selectedMethod = PaymentMethod.cash;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Top Up Wallet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                labelText: 'Amount',
-                prefixText: AppConstants.currencySymbol,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16.h),
-            DropdownButtonFormField<String>(
-              initialValue: selectedMethod,
-              decoration: const InputDecoration(
-                labelText: 'Payment Method',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'gcash', child: Text('GCash')),
-                DropdownMenuItem(value: 'card', child: Text('Credit/Debit Card')),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Request Top-Up'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Amount *',
+                    prefixText: AppConstants.currencySymbol,
+                    border: const OutlineInputBorder(),
+                    hintText: '0.00',
+                  ),
+                ),
+                SizedBox(height: 16.h),
+                DropdownButtonFormField<PaymentMethod>(
+                  value: selectedMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Method *',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: PaymentMethod.values.map((method) {
+                    return DropdownMenuItem(
+                      value: method,
+                      child: Text(method.displayName),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        selectedMethod = value;
+                      });
+                    }
+                  },
+                ),
+                SizedBox(height: 16.h),
+                TextField(
+                  controller: referenceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Transaction Reference (Optional)',
+                    border: OutlineInputBorder(),
+                    hintText: 'e.g., Receipt number, confirmation code',
+                  ),
+                ),
+                SizedBox(height: 16.h),
+                TextField(
+                  controller: notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (Optional)',
+                    border: OutlineInputBorder(),
+                    hintText: 'Add any additional information',
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  'Your top-up request will be reviewed by an admin and processed within 24 hours.',
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
               ],
-              onChanged: (value) {
-                selectedMethod = value!;
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final amount = double.tryParse(amountController.text);
+                if (amount == null || amount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid amount')),
+                  );
+                  return;
+                }
+
+                final reference = referenceController.text.trim();
+                final notes = notesController.text.trim();
+
+                try {
+                  // Get current user info
+                  final currentUser = ref.read(currentUserProvider).value;
+                  final parent = ref.read(currentParentProvider).value;
+                  
+                  if (currentUser == null || parent == null) {
+                    throw Exception('User not logged in');
+                  }
+
+                  // Create top-up request
+                  final topup = Topup(
+                    id: const Uuid().v4(),
+                    parentId: parent.userId,
+                    parentName: '${currentUser.firstName} ${currentUser.lastName}',
+                    amount: amount,
+                    status: TopupStatus.pending,
+                    paymentMethod: selectedMethod,
+                    transactionReference: reference.isEmpty ? null : reference,
+                    notes: notes.isEmpty ? null : notes,
+                    requestDate: DateTime.now(),
+                    createdAt: DateTime.now(),
+                  );
+
+                  await ref.read(topupServiceProvider).createTopup(topup);
+
+                  // Invalidate transactions provider to refresh UI immediately
+                  ref.invalidate(parentTransactionsStreamProvider(topup.parentId));
+
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(
+                        content: Text('Top-up request submitted successfully!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Error: $e')),
+                    );
+                  }
+                }
               },
+              child: const Text('Submit Request'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              // TODO: Implement top-up logic
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Top-up functionality coming soon'),
-                ),
-              );
-            },
-            child: const Text('Top Up'),
-          ),
-        ],
       ),
     );
   }

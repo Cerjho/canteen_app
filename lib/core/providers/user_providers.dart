@@ -7,6 +7,7 @@ import '../services/parent_service.dart';
 import '../services/user_service.dart';
 import '../models/student.dart';
 import '../models/parent.dart';
+import '../models/user_role.dart';
 import 'supabase_providers.dart';
 import 'auth_providers.dart';
 
@@ -42,6 +43,22 @@ final parentServiceProvider = Provider<IParentService>((ref) {
 // ============================================================================
 // STUDENT & PARENT DATA PROVIDERS
 // ============================================================================
+
+/// All Users Provider
+/// 
+/// Streams all users in the system (admin view).
+/// Returns: Stream<List<AppUser>>
+final allUsersProvider = StreamProvider((ref) {
+  return ref.watch(userServiceProvider).getAllUsers();
+});
+
+/// User by ID Provider Family
+///
+/// Streams a specific user by their UID.
+/// Usage: ref.watch(userByIdProvider(userId))
+final userByIdProvider = StreamProvider.family<AppUser?, String>((ref, userId) {
+  return ref.watch(userServiceProvider).getUserStream(userId);
+});
 
 /// All Students Provider
 /// 

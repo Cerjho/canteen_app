@@ -18,6 +18,8 @@ class CartItem {
   final DateTime addedAt;
   final String? studentId;
   final String? studentName;
+  final String? deliveryTime; // e.g., '09:00', '12:00', '14:00'
+  final String? specialInstructions;
 
   const CartItem({
   required this.id,
@@ -30,6 +32,8 @@ class CartItem {
   required this.addedAt,
   this.studentId,
   this.studentName,
+  this.deliveryTime,
+  this.specialInstructions,
   });
 
   /// Calculate total price for this cart item
@@ -59,6 +63,8 @@ class CartItem {
       addedAt: parsedAddedAt,
       studentId: (map['student_id'] ?? map['studentId']) as String?,
       studentName: (map['student_name'] ?? map['studentName']) as String?,
+      deliveryTime: (map['delivery_time'] ?? map['deliveryTime']) as String?,
+      specialInstructions: (map['special_instructions'] ?? map['specialInstructions']) as String?,
     );
   }
 
@@ -76,6 +82,8 @@ class CartItem {
       'added_at': addedAt.toIso8601String(),
       'student_id': studentId,
       'student_name': studentName,
+      'delivery_time': deliveryTime,
+      'special_instructions': specialInstructions,
     };
   }
 
@@ -91,6 +99,8 @@ class CartItem {
   DateTime? addedAt,
   String? studentId,
   String? studentName,
+  String? deliveryTime,
+  String? specialInstructions,
   }) {
     return CartItem(
       id: id ?? this.id,
@@ -103,6 +113,8 @@ class CartItem {
       addedAt: addedAt ?? this.addedAt,
       studentId: studentId ?? this.studentId,
       studentName: studentName ?? this.studentName,
+      deliveryTime: deliveryTime ?? this.deliveryTime,
+      specialInstructions: specialInstructions ?? this.specialInstructions,
     );
   }
 
@@ -117,7 +129,7 @@ class CartItem {
     return other is CartItem &&
         other.id == id &&
         other.menuItemId == menuItemId &&
-        other.quantity == quantity;
+    other.quantity == quantity;
   }
 
   @override

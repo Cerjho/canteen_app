@@ -5,23 +5,21 @@ import 'package:flutter/foundation.dart';
 /// This model stores parent-specific information separate from the base user account.
 /// Each parent has a corresponding document in the `users` collection with basic info.
 /// 
-/// Firestore Structure:
+/// Supabase Structure:
 /// ```
-/// parents/{uid}/  (uid matches the Firebase Auth UID and users collection doc ID)
-///   ├── userId: string (reference to users collection, same as doc ID)
-///   ├── balance: number (parent's account balance for purchases)
-///   ├── address: string (optional, parent's address)
-///   ├── phone: string (parent's phone number)
-///   ├── children: array<string> (array of student IDs linked to this parent)
-///   ├── photoUrl: string (optional, profile photo)
-///   ├── isActive: boolean
-///   ├── createdAt: timestamp
-///   └── updatedAt: timestamp (nullable)
+/// parents/{user_id}/  (user_id matches the Supabase Auth UUID and users table uid)
+///   ├── user_id: UUID (reference to users table, same as Supabase Auth UUID)
+///   ├── balance: decimal (parent's account balance for purchases)
+///   ├── address: text (optional, parent's address)
+///   ├── phone: text (parent's phone number)
+///   ├── student_ids: text[] (array of student UUIDs linked to this parent)
+///   ├── created_at: timestamptz
+///   └── updated_at: timestamptz (nullable)
 /// ```
 @immutable
 class Parent {
-  /// User ID - references the document in the `users` collection
-  /// This is the same as the Firebase Auth UID
+  /// User ID - references the users table
+  /// This is the same as the Supabase Auth UUID
   final String userId;
   
   /// Parent's account balance for making purchases
@@ -62,7 +60,7 @@ class Parent {
   });
 
   /// Convert to database document format
-  /// Matches the required structure: userId, balance, address, phone, children[]
+  /// Matches the required structure: userId, balance, address, phone, student_ids[]
   /// Uses snake_case for Postgres compatibility
   Map<String, dynamic> toMap() {
     return {
@@ -70,9 +68,9 @@ class Parent {
       'balance': balance,
       'address': address,
       'phone': phone,
-      'children': children,
+      'student_ids': children, // Database uses student_ids
       'photo_url': photoUrl,
-      'is_active': isActive,
+      // Note: parents table does not have is_active column in current schema
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -86,7 +84,7 @@ class Parent {
       balance: ((map['balance'] as num?)?.toDouble()) ?? 0.0,
       address: map['address'] as String?,
       phone: map['phone'] as String?,
-      children: List<String>.from(map['children'] ?? []),
+      children: List<String>.from(map['student_ids'] ?? map['children'] ?? []), // Database uses student_ids
       photoUrl: (map['photo_url'] ?? map['photoUrl']) as String?,
       isActive: (map['is_active'] ?? map['isActive']) as bool? ?? true,
       createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),

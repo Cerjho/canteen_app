@@ -3,6 +3,7 @@ import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/models/student.dart';
 import '../../../core/services/student_service.dart';
 import '../../../core/providers/app_providers.dart';
@@ -10,7 +11,6 @@ import '../../../core/utils/file_download.dart' as file_download;
 import '../../../core/utils/app_logger.dart';
 import '../../../shared/components/loading_indicator.dart';
 import 'student_form_screen.dart';
-import '../../../core/providers/date_refresh_provider.dart';
 
 /// Students Management Screen - displays and manages all students
 class StudentsScreen extends ConsumerStatefulWidget {
@@ -125,25 +125,25 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                 // Grade Filter
                 SizedBox(
                   width: 180,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _selectedGrade,
+                  child: DropdownButtonFormField<String?>(
+                    value: _selectedGrade,
                     decoration: const InputDecoration(
                       labelText: 'Grade',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 16),
                     ),
-                    items: const [
-                      DropdownMenuItem(value: null, child: Text('All Grades')),
-                      DropdownMenuItem(value: 'Nursery', child: Text('Nursery')),
-                      DropdownMenuItem(value: 'Kinder', child: Text('Kinder')),
-                      DropdownMenuItem(value: 'Grade 1', child: Text('Grade 1')),
-                      DropdownMenuItem(value: 'Grade 2', child: Text('Grade 2')),
-                      DropdownMenuItem(value: 'Grade 3', child: Text('Grade 3')),
-                      DropdownMenuItem(value: 'Grade 4', child: Text('Grade 4')),
-                      DropdownMenuItem(value: 'Grade 5', child: Text('Grade 5')),
-                      DropdownMenuItem(value: 'Grade 6', child: Text('Grade 6')),
+                    items: const <DropdownMenuItem<String?>>[
+                      DropdownMenuItem<String?>(value: null, child: Text('All Grades')),
+                      DropdownMenuItem<String?>(value: 'Nursery', child: Text('Nursery')),
+                      DropdownMenuItem<String?>(value: 'Kinder', child: Text('Kinder')),
+                      DropdownMenuItem<String?>(value: 'Grade 1', child: Text('Grade 1')),
+                      DropdownMenuItem<String?>(value: 'Grade 2', child: Text('Grade 2')),
+                      DropdownMenuItem<String?>(value: 'Grade 3', child: Text('Grade 3')),
+                      DropdownMenuItem<String?>(value: 'Grade 4', child: Text('Grade 4')),
+                      DropdownMenuItem<String?>(value: 'Grade 5', child: Text('Grade 5')),
+                      DropdownMenuItem<String?>(value: 'Grade 6', child: Text('Grade 6')),
                     ],
-                    onChanged: (value) {
+                    onChanged: (String? value) {
                       setState(() => _selectedGrade = value);
                     },
                   ),
@@ -366,6 +366,10 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
     if (confirmed == true && mounted) {
       try {
         await ref.read(studentServiceProvider).deleteStudent(studentId);
+        
+        // Refresh the students provider to update UI immediately
+        ref.invalidate(studentsProvider);
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Student deleted successfully')),
@@ -417,7 +421,10 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
       // Close loading dialog using root navigator
       Navigator.of(context, rootNavigator: true).pop();
 
-      // Small delay to allow Firestore stream to update
+      // Refresh the students provider to update UI immediately
+      ref.invalidate(studentsProvider);
+
+      // Small delay to allow Supabase stream to update
       await Future.delayed(const Duration(milliseconds: 300));
 
       // Show result dialog
@@ -563,16 +570,46 @@ class _StudentsDataSource extends DataTableSource {
         DataCell(
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: Text(
-                  student.firstName[0].toUpperCase(),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.bold,
+              if (student.photoUrl != null && student.photoUrl!.isNotEmpty)
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CachedNetworkImage(
+                    imageUrl: student.photoUrl!,
+                    imageBuilder: (context, imageProvider) => CircleAvatar(
+                      backgroundImage: imageProvider,
+                    ),
+                    placeholder: (context, url) => CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      child: const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    errorWidget: (context, url, error) => CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      child: Text(
+                        student.firstName[0].toUpperCase(),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: Text(
+                    student.firstName[0].toUpperCase(),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(

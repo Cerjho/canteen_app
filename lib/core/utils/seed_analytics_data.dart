@@ -20,8 +20,8 @@ class SeedAnalyticsData {
       AppLogger.info('🗑️ Clearing existing test orders...');
       await clearAllOrders();
       
-      // Fetch real students from Firestore
-      AppLogger.info('👥 Fetching students from Firestore...');
+      // Fetch real students from Supabase
+      AppLogger.info('👥 Fetching students from Supabase...');
       final studentsData = await _supabase
           .from('students')
           .select('id, first_name, last_name');
@@ -125,7 +125,7 @@ class SeedAnalyticsData {
             'id': orderId,
             'student_id': studentId,
             'student_name': studentName,
-            'order_date': orderDate.toIso8601String(),
+            'delivery_date': orderDate.toIso8601String(),
             'items': orderItems,
             'total_amount': totalAmount,
             'status': 'completed',

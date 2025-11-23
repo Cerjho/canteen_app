@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data';
 import '../../../core/models/student.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/user_providers.dart';
 import '../../../core/utils/validation_utils.dart';
  
 
@@ -26,7 +29,6 @@ class StudentFormScreen extends ConsumerStatefulWidget {
 
 class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _uuid = const Uuid();
   
   late final TextEditingController _firstNameController;
   late final TextEditingController _lastNameController;
@@ -37,6 +39,8 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
   
   bool _isActive = true;
   bool _isLoading = false;
+  Uint8List? _photoBytes;
+  String? _photoUrl;
 
   @override
   void initState() {
@@ -50,6 +54,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
     _allergiesController = TextEditingController(text: student?.allergies ?? '');
     _dietaryController = TextEditingController(text: student?.dietaryRestrictions ?? '');
     _isActive = student?.isActive ?? true;
+    _photoUrl = student?.photoUrl;
   }
 
   @override
@@ -137,7 +142,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
 
                       // Grade
                       DropdownButtonFormField<String>(
-                        initialValue: _gradeController.text.isNotEmpty ? _gradeController.text : null,
+                        initialValue: _gradeController.text.trim().isNotEmpty && ['Nursery', 'Kinder', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'].contains(_gradeController.text.trim()) ? _gradeController.text.trim() : null,
                         decoration: const InputDecoration(
                           labelText: 'Grade *',
                           hintText: 'Select grade',
@@ -196,6 +201,120 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
                           helperText: 'Separate multiple restrictions with commas',
                         ),
                         maxLines: 2,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Photo Upload Section
+                      Text(
+                        'Student Photo',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 150,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: _photoBytes != null
+                            ? Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.memory(
+                                      _photoBytes!,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: IconButton(
+                                      onPressed: _isLoading
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _photoBytes = null;
+                                              });
+                                            },
+                                      icon: const Icon(Icons.close),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Theme.of(context).colorScheme.error.withValues(alpha: 0.9),
+                                        foregroundColor: Theme.of(context).colorScheme.onError,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : _photoUrl != null
+                                ? Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.network(
+                                          _photoUrl!,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Center(
+                                              child: Icon(
+                                                Icons.person,
+                                                size: 48,
+                                                color: Theme.of(context).colorScheme.outline,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: IconButton(
+                                          onPressed: _isLoading
+                                              ? null
+                                              : () {
+                                                  setState(() {
+                                                    _photoUrl = null;
+                                                  });
+                                                },
+                                          icon: const Icon(Icons.close),
+                                          style: IconButton.styleFrom(
+                                            backgroundColor: Theme.of(context).colorScheme.error.withValues(alpha: 0.9),
+                                            foregroundColor: Theme.of(context).colorScheme.onError,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.person_add_alt_1_outlined,
+                                          size: 48,
+                                          color: Theme.of(context).colorScheme.outline,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'No photo selected',
+                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _pickPhoto,
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('Choose Photo'),
                       ),
                       const SizedBox(height: 16),
 
@@ -257,14 +376,28 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final storageService = ref.read(storageServiceProvider);
+      final studentId = widget.student?.id ?? const Uuid().v4();
+      String? finalPhotoUrl = _photoUrl;
+
+      // Upload new photo if selected
+      if (_photoBytes != null) {
+        finalPhotoUrl = await storageService.uploadStudentPhoto(
+          _photoBytes!,
+          studentId,
+        );
+      }
+
       final student = Student(
-        id: widget.student?.id ?? _uuid.v4(),
+        id: studentId,
         firstName: _firstNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
         grade: _gradeController.text.trim(),
-        parentId: _parentIdController.text.trim().isNotEmpty ? _parentIdController.text.trim() : '',
+        // Store null (not empty string) when no parent is provided to avoid DB UUID cast issues
+        parentId: _parentIdController.text.trim().isNotEmpty ? _parentIdController.text.trim() : null,
         allergies: _allergiesController.text.trim().isNotEmpty ? _allergiesController.text.trim() : null,
         dietaryRestrictions: _dietaryController.text.trim().isNotEmpty ? _dietaryController.text.trim() : null,
+        photoUrl: finalPhotoUrl,
         isActive: _isActive,
         createdAt: widget.student?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
@@ -277,6 +410,9 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
       } else {
         await studentService.updateStudent(student);
       }
+
+      // Invalidate students provider to refresh UI immediately
+      ref.invalidate(studentsProvider);
 
       if (mounted) {
         Navigator.pop(context);
@@ -299,6 +435,32 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _pickPhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        setState(() {
+          _photoBytes = file.bytes;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick photo: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
       }
     }
   }

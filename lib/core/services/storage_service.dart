@@ -59,41 +59,47 @@ class StorageService {
     // Generate unique filename to prevent caching issues
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final fileName = '${menuItemId}_$timestamp.jpg';
-    final path = 'menu_items/$fileName';
+    final path = 'menu-items/$fileName';
 
     return uploadImage(
       imageData: imageData,
-      bucket: 'images',
+      bucket: 'canteen',
       path: path,
     );
   }
 
   /// Upload student photo
   Future<String> uploadStudentPhoto(Uint8List imageData, String studentId) async {
-    final path = 'students/$studentId.jpg';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = '${studentId}_$timestamp.jpg';
+    final path = 'students/$fileName';
     return uploadImage(
       imageData: imageData,
-      bucket: 'images',
+      bucket: 'canteen',
       path: path,
     );
   }
 
   /// Upload parent photo
   Future<String> uploadParentPhoto(Uint8List imageData, String parentId) async {
-    final path = 'parents/$parentId.jpg';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = '${parentId}_$timestamp.jpg';
+    final path = 'parents/$fileName';
     return uploadImage(
       imageData: imageData,
-      bucket: 'images',
+      bucket: 'canteen',
       path: path,
     );
   }
 
   /// Upload topup proof
   Future<String> uploadTopupProof(Uint8List imageData, String topupId) async {
-    final path = 'topup_proofs/$topupId.jpg';
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = '${topupId}_$timestamp.jpg';
+    final path = 'topup-proofs/$fileName';
     return uploadImage(
       imageData: imageData,
-      bucket: 'documents',
+      bucket: 'canteen',
       path: path,
     );
   }

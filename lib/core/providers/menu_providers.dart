@@ -88,7 +88,7 @@ final weeklyMenuHistoryProvider = StreamProvider((ref) {
 /// Streams menu items in breakfast category.
 /// Returns: Stream<List<MenuItem>>
 final breakfastItemsProvider = StreamProvider((ref) {
-  return ref.watch(menuServiceProvider).getBreakfastItems();
+  return ref.watch(menuServiceProvider).getMenuItemsByCategory('Breakfast');
 });
 
 /// Lunch Items Provider
@@ -96,7 +96,7 @@ final breakfastItemsProvider = StreamProvider((ref) {
 /// Streams menu items in lunch category.
 /// Returns: Stream<List<MenuItem>>
 final lunchItemsProvider = StreamProvider((ref) {
-  return ref.watch(menuServiceProvider).getLunchItems();
+  return ref.watch(menuServiceProvider).getMenuItemsByCategory('Lunch');
 });
 
 /// Snack Items Provider
@@ -104,7 +104,7 @@ final lunchItemsProvider = StreamProvider((ref) {
 /// Streams menu items in snack category.
 /// Returns: Stream<List<MenuItem>>
 final snackItemsProvider = StreamProvider((ref) {
-  return ref.watch(menuServiceProvider).getSnackItems();
+  return ref.watch(menuServiceProvider).getMenuItemsByCategory('Snacks');
 });
 
 /// Drinks Provider
@@ -112,7 +112,7 @@ final snackItemsProvider = StreamProvider((ref) {
 /// Streams menu items in drinks category.
 /// Returns: Stream<List<MenuItem>>
 final drinksProvider = StreamProvider((ref) {
-  return ref.watch(menuServiceProvider).getDrinks();
+  return ref.watch(menuServiceProvider).getMenuItemsByCategory('Drinks');
 });
 
 // ============================================================================

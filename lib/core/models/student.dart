@@ -3,30 +3,28 @@ import 'package:flutter/foundation.dart';
 /// Student model - represents a student in the canteen system
 /// 
 /// Students are linked to parents through the parentId field.
-/// NOTE: Student documents include a `balance` field for administrative
-/// or reference purposes only. Orders and runtime billing are charged to
-/// the linked parent's wallet (the `parents` collection). The student
-/// balance field is kept for reporting, migration, or admin adjustments
-/// and should not be relied on by parent-facing order flows.
+/// NOTE: Student documents do not have a `balance` field. Orders are
+/// charged to the linked parent's wallet (the `parents` collection). 
 /// 
-/// Firestore Structure:
+/// Supabase Structure:
 /// ```
 /// students/{id}/
-///   ├── id: string (auto-generated or custom ID)
-///   ├── parentId: string (reference to parent's userId)
-///   ├── firstName: string (student's first name)  
-///   ├── lastName: string (student's last name)
-///   ├── gradeLevel: string (e.g., "Grade 1", "Grade 7")
-///   ├── allergies: string (optional, comma-separated allergies)
-///   ├── dietaryRestrictions: string (optional)
-///   ├── photoUrl: string (optional, profile photo)
-///   ├── isActive: boolean
-///   ├── createdAt: timestamp
-///   └── updatedAt: timestamp (nullable)
+///   ├── id: UUID (primary key)
+///   ├── parent_user_id: UUID (reference to users table)
+///   ├── first_name: text (student's first name)  
+///   ├── last_name: text (student's last name)
+///   ├── grade_level: text (e.g., "Grade 1", "Grade 7")
+///   ├── section: text (optional)
+///   ├── photo_url: text (optional, profile photo)
+///   ├── allergies: text[] (array of allergens)
+///   ├── dietary_restrictions: text[] (array of restrictions)
+///   ├── is_active: boolean
+///   ├── created_at: timestamptz
+///   └── updated_at: timestamptz (nullable)
 /// ```
 @immutable
 class Student {
-  /// Unique student ID (document ID in Firestore)
+  /// Unique student ID (UUID in Supabase)
   final String id;
   
   /// Student's first name
@@ -86,10 +84,15 @@ class Student {
       'id': id,
       'first_name': firstName,
       'last_name': lastName,
-      'grade': grade,
-      'parent_id': parentId,
-      'allergies': allergies,
-      'dietary_restrictions': dietaryRestrictions,
+      'grade_level': grade, // Database uses grade_level
+    // Ensure empty string is not written to UUID column
+    'parent_user_id': (parentId != null && parentId!.trim().isNotEmpty) ? parentId : null, // Database uses parent_user_id
+      'allergies': allergies != null && allergies!.isNotEmpty 
+          ? allergies!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() 
+          : null, // Convert comma-separated string to array
+      'dietary_restrictions': dietaryRestrictions != null && dietaryRestrictions!.isNotEmpty
+          ? dietaryRestrictions!.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
+          : null, // Convert comma-separated string to array
       'photo_url': photoUrl,
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
@@ -100,19 +103,35 @@ class Student {
   /// Create from database document
   /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Student.fromMap(Map<String, dynamic> map) {
+    // Helper to convert array or string to comma-separated string
+    String? listToString(dynamic value) {
+      if (value == null) return null;
+      if (value is List) {
+        return value.map((e) => e.toString()).join(', ');
+      }
+      return value.toString();
+    }
+
+    DateTime parseDate(dynamic v) {
+      if (v == null) return DateTime.now();
+      if (v is DateTime) return v;
+      if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+      return DateTime.now();
+    }
+    
     return Student(
       id: map['id'] as String,
       firstName: (map['first_name'] ?? map['firstName']) as String,
       lastName: (map['last_name'] ?? map['lastName']) as String,
-      grade: map['grade'] as String,
-      parentId: (map['parent_id'] ?? map['parentId']) as String?,
-      allergies: map['allergies'] as String?,
-      dietaryRestrictions: (map['dietary_restrictions'] ?? map['dietaryRestrictions']) as String?,
+      grade: (map['grade_level'] ?? map['grade']) as String, // Support both field names
+      parentId: (map['parent_user_id'] ?? map['parent_id'] ?? map['parentId']) as String?, // Support all variants
+      allergies: listToString(map['allergies']), // Convert array to comma-separated string
+      dietaryRestrictions: listToString(map['dietary_restrictions'] ?? map['dietaryRestrictions']), // Convert array to string
       photoUrl: (map['photo_url'] ?? map['photoUrl']) as String?,
       isActive: (map['is_active'] ?? map['isActive']) as bool? ?? true,
-      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      createdAt: parseDate(map['created_at'] ?? map['createdAt']),
       updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
-          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
+          ? parseDate(map['updated_at'] ?? map['updatedAt'])
           : null,
     );
   }

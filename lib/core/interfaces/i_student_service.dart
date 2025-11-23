@@ -76,6 +76,13 @@ abstract class IStudentService {
   /// [grade] - The grade level
   Stream<List<Student>> getStudentsByGrade(String grade);
 
+  /// Get student by unique code
+  /// Returns null if not found
+  Future<Student?> getStudentByCode(String code);
+
+  /// Update student's parent link (parent_user_id)
+  Future<void> updateParentId(String studentId, String parentUserId);
+
   /// Import students from CSV
   /// 
   /// Imports multiple students from a CSV byte array.

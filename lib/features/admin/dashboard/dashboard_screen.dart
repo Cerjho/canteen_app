@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
-import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -13,11 +11,6 @@ import '../../../shared/components/loading_indicator.dart';
 /// Dashboard Screen - shows overview and statistics
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
-
-  // Small provider used to trigger manual refreshes of token claims in the
-  // debug panel. Incrementing the value forces the widget to rebuild and
-  // re-run the FutureBuilder that fetches token claims.
-  static final _debugClaimsRefreshProvider = StateProvider<int>((ref) => 0);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -309,10 +302,6 @@ class DashboardScreen extends ConsumerWidget {
 
                 const SizedBox(height: 24),
 
-                // Dev-only debug panel: shows current user UID and token claims.
-                // Visible only in debug builds (kDebugMode).
-                _buildDebugPanel(context, ref),
-
                 // Recent Orders
                 Text(
                   'Today\'s Orders',
@@ -357,13 +346,17 @@ class DashboardScreen extends ConsumerWidget {
                         separatorBuilder: (context, index) => const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final order = orders[index];
+                          // TODO: Fetch student name from students table using order.studentId
+                          final studentInitial = '#'; // Placeholder
+                          final studentDisplay = 'Student ${order.studentId.substring(0, 6)}...'; // Placeholder
+                          
                           return ListTile(
                             leading: CircleAvatar(
-                              child: Text(order.studentName[0]),
+                              child: Text(studentInitial),
                             ),
-                            title: Text(order.studentName),
+                            title: Text(studentDisplay),
                             subtitle: Text(
-                              '${order.items.length} items • ${FormatUtils.time(order.orderDate)}',
+                              '${order.items.length} items • ${FormatUtils.time(order.deliveryDate)}',
                             ),
                             trailing: Chip(
                               label: Text(order.status.displayName),
@@ -412,121 +405,6 @@ class DashboardScreen extends ConsumerWidget {
         return Colors.red[100]!;
     }
   }
-  /// Dev-only debug panel that displays current user UID and token claims.
-  /// Visible only when `kDebugMode` is true.
-  Widget _buildDebugPanel(BuildContext context, WidgetRef ref) {
-    if (!kDebugMode) return const SizedBox.shrink();
-
-  final supabase = ref.read(supabaseProvider);
-  final user = supabase.auth.currentUser;
-  // watch the refresh counter so pressing refresh will rebuild the
-  // FutureBuilder below and fetch fresh claims.
-  final refreshCounter = ref.watch(DashboardScreen._debugClaimsRefreshProvider);
-
-    return Card(
-      color: Colors.grey[50],
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Debug (dev only)',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 8),
-            SelectableText('UID: ${user?.id ?? 'not signed in'}'),
-            const SizedBox(height: 8),
-            FutureBuilder(
-              key: ValueKey(refreshCounter),
-              // Force refresh to ensure session is current in debug mode.
-              // Depend on `refreshCounter` so the FutureBuilder is rebuilt when
-              // the refresh button is pressed.
-              future: user != null ? supabase.auth.refreshSession() : Future.value(null),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Text('Loading session...');
-                }
-                if (snapshot.hasError) {
-                  return Text('Error loading session: ${snapshot.error}');
-                }
-                final userMetadata = user?.userMetadata ?? <String, dynamic>{};
-                final appMetadata = user?.appMetadata ?? <String, dynamic>{};
-                final allData = {
-                  'user_metadata': userMetadata,
-                  'app_metadata': appMetadata,
-                };
-                final pretty = const JsonEncoder.withIndent('  ').convert(allData);
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('User metadata:'),
-                        Row(
-                          children: [
-                            IconButton(
-                              tooltip: 'Refresh metadata',
-                              icon: const Icon(Icons.refresh),
-                              onPressed: () {
-                                // increment the refresh counter to force rebuild
-                                ref.read(DashboardScreen._debugClaimsRefreshProvider.notifier).state++;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Refreshing claims...')),
-                                );
-                              },
-                            ),
-                            IconButton(
-                              tooltip: 'Copy UID',
-                              icon: const Icon(Icons.copy),
-                              onPressed: () {
-                                final messenger = ScaffoldMessenger.of(context);
-                                Clipboard.setData(ClipboardData(text: user?.id ?? '')).then((_) {
-                                  messenger.showSnackBar(
-                                    const SnackBar(content: Text('UID copied to clipboard')),
-                                  );
-                                });
-                              },
-                            ),
-                            IconButton(
-                              tooltip: 'Copy metadata',
-                              icon: const Icon(Icons.file_copy),
-                              onPressed: () {
-                                final messenger = ScaffoldMessenger.of(context);
-                                Clipboard.setData(ClipboardData(text: pretty)).then((_) {
-                                  messenger.showSnackBar(
-                                    const SnackBar(content: Text('Metadata copied to clipboard')),
-                                  );
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: Colors.grey.shade200),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      padding: const EdgeInsets.all(8),
-                      child: SelectableText(pretty),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
 }
 
 /// Simple mini line chart built with CustomPaint to avoid new dependencies.

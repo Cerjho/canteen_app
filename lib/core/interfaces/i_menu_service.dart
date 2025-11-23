@@ -28,29 +28,18 @@ abstract class IMenuService {
   /// Toggle menu item availability
   Future<void> toggleAvailability(String id, bool isAvailable);
 
-  /// Update menu item stock quantity
+  /// Update menu item stock quantity - DEPRECATED: field removed from schema
+  @Deprecated('stock_quantity field has been removed from database schema')
   Future<void> updateStockQuantity(String id, int quantity);
 
   /// Get menu items by category
   Stream<List<MenuItem>> getMenuItemsByCategory(String category);
 
-  /// Get menu items by availability for specific days
+  /// Get menu items by available days
   Stream<List<MenuItem>> getMenuItemsByAvailableDays(List<String> days);
 
   /// Search menu items by name
   Stream<List<MenuItem>> searchMenuItems(String query);
-
-  /// Get menu items for breakfast
-  Stream<List<MenuItem>> getBreakfastItems();
-
-  /// Get menu items for lunch
-  Stream<List<MenuItem>> getLunchItems();
-
-  /// Get menu items for snacks
-  Stream<List<MenuItem>> getSnackItems();
-
-  /// Get drinks
-  Stream<List<MenuItem>> getDrinks();
 
   /// Import menu items from CSV
   Future<Map<String, dynamic>> importFromCSV(List<int> bytes);

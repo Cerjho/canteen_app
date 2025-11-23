@@ -51,4 +51,17 @@ abstract class IOrderService {
 
   /// Get monthly statistics
   Future<Map<String, dynamic>> getMonthlyStatistics(DateTime month);
+
+  /// Place an order atomically (create order + deduct parent balance on server)
+  ///
+  /// Returns the created order ID.
+  Future<String> placeOrder({
+    required String parentId,
+    required String studentId,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    required DateTime deliveryDate,
+    String? deliveryTime,
+    String? specialInstructions,
+  });
 }

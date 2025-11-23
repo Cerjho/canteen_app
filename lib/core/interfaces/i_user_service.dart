@@ -39,4 +39,7 @@ abstract class IUserService {
 
   /// Search users by email
   Stream<List<AppUser>> searchUsersByEmail(String query);
+
+  /// Send a password reset email to the specified address
+  Future<void> sendPasswordResetEmail(String email, {String? redirectTo});
 }

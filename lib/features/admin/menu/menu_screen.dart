@@ -8,6 +8,7 @@ import '../../../core/models/weekly_menu.dart';
 import '../../../core/models/weekly_menu_analytics.dart';
 import '../../../core/services/menu_service.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/menu_providers.dart';
 import '../../../core/utils/format_utils.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/file_download.dart' as file_download;
@@ -17,7 +18,7 @@ import '../../../shared/components/week_picker.dart';
 import '../../../shared/components/analytics_charts.dart';
 import 'menu_item_form_screen.dart';
 import 'weekly_menu_history_screen.dart';
-import '../../../core/providers/date_refresh_provider.dart';
+import 'menu_screen_state.dart';
 
 /// Menu Management Screen with 3 distinct purposes:
 /// - Tab 1 (All Menu Items): Master list for CRUD operations on food/drink items
@@ -32,61 +33,19 @@ class MenuScreen extends ConsumerStatefulWidget {
 
 class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProviderStateMixin {
   final _searchController = TextEditingController();
-  String _searchQuery = '';
-  String? _selectedCategory;
-  final bool _availableOnly = false;
   
-  // Enhanced filtering and sorting state
-  String _sortBy = 'name'; // 'name', 'price', 'popularity', 'updated'
-  final Set<String> _selectedFilters = {}; // Advanced filters: 'available', 'unavailable', 'vegan', 'gf', 'price<30'
-  RangeValues _priceRange = const RangeValues(0, 100);
-  final Set<String> _bulkSelected = {}; // IDs of items selected for bulk actions
-  
-  // Weekly Menu State
+  // Tab controller for navigation
   late TabController _tabController;
-  late DateTime _selectedWeek; // Initialized in initState to Monday
-  String _selectedDay = 'Monday';
-  Map<String, Map<String, List<String>>> _currentMenuByDay = {};
-  bool _isPublished = false;
-  int _menuRefreshKey = 0; // Used to trigger FutureBuilder refresh
-  
-  // Analytics State
-  late DateTime _analyticsWeek; // Initialized in initState to Monday
-  bool _showCategorical = false; // Toggle for categorical view
 
   @override
   void initState() {
     super.initState();
-  // Initialize both weeks to Monday of current week (critical for Firestore queries)
-  // Use the centralized date provider so initialization is consistent and
-  // won't capture a stale DateTime during hot-reload / resume.
-  final now = ref.read(dateRefreshProvider);
-  _selectedWeek = _getMondayOfWeek(now);
-  _analyticsWeek = _getMondayOfWeek(now);
-    
     _tabController = TabController(length: 3, vsync: this);
     
     // LOW PRIORITY - Polish: Smooth initial entry animation
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _tabController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-      }
-    });
-
-    // Rebuild when the calendar day changes so week selection and current-week
-    // markers refresh automatically.
-    ref.listenManual<DateTime?>(dateRefreshProvider, (previous, next) {
-      if (mounted) {
-        setState(() {
-        // Advance selected weeks to current week if they were tracking 'today'
-        final today = next;
-        if (_selectedWeek.year == previous?.year && _selectedWeek.month == previous?.month && _selectedWeek.day == previous?.day) {
-          _selectedWeek = _getMondayOfWeek(today!);
-        }
-        if (_analyticsWeek.year == previous?.year && _analyticsWeek.month == previous?.month && _analyticsWeek.day == previous?.day) {
-          _analyticsWeek = _getMondayOfWeek(today!);
-        }
-      });
       }
     });
   }
@@ -98,110 +57,29 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     super.dispose();
   }
 
-  /// Get Monday of the week for a given date (critical for Firestore week alignment)
-  DateTime _getMondayOfWeek(DateTime date) {
-    return date.subtract(Duration(days: date.weekday - 1));
-  }
-
-  /// Filter menu items based on advanced filters
-  bool _matchesFilters(MenuItem item) {
-    if (_selectedFilters.isEmpty) return true;
-    
-    for (final filter in _selectedFilters) {
-      switch (filter) {
-        case 'available':
-          if (!item.isAvailable) return false;
-          break;
-        case 'unavailable':
-          if (item.isAvailable) return false;
-          break;
-        case 'vegan':
-          if (!item.isVegan) return false;
-          break;
-        case 'vegetarian':
-          if (!item.isVegetarian) return false;
-          break;
-        case 'gf':
-          if (!item.isGlutenFree) return false;
-          break;
-        case 'price<30':
-          if (item.price >= 30) return false;
-          break;
-      }
-    }
-    
-    // Price range filter
-    if (item.price < _priceRange.start || item.price > _priceRange.end) {
-      return false;
-    }
-    
-    return true;
-  }
-
-  /// Sort menu items based on selected sort option
-  List<MenuItem> _sortMenuItems(List<MenuItem> items) {
-    final sortedList = List<MenuItem>.from(items);
-    
-    switch (_sortBy) {
-      case 'name':
-        sortedList.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-        break;
-      case 'price':
-        sortedList.sort((a, b) => a.price.compareTo(b.price));
-        break;
-      case 'updated':
-        sortedList.sort((a, b) {
-          final aDate = a.updatedAt ?? a.createdAt;
-          final bDate = b.updatedAt ?? b.createdAt;
-          return bDate.compareTo(aDate); // Most recent first
-        });
-        break;
-      case 'popularity':
-        // For now, sort by name as fallback (popularity would need analytics integration)
-        // TODO: Integrate with WeeklyMenuAnalytics.getTotalForItem(itemId)
-        sortedList.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-        break;
-    }
-    
-    return sortedList;
-  }
-
-  /// Clear all advanced filters
-  void _clearAllFilters() {
-    setState(() {
-      _selectedFilters.clear();
-      _priceRange = const RangeValues(0, 100);
-      _bulkSelected.clear();
-    });
-  }
-
   /// Toggle bulk selection for an item
   void _toggleBulkSelection(String itemId) {
-    setState(() {
-      if (_bulkSelected.contains(itemId)) {
-        _bulkSelected.remove(itemId);
-      } else {
-        _bulkSelected.add(itemId);
-      }
-    });
+    ref.read(menuScreenStateProvider.notifier).toggleBulkSelection(itemId);
   }
 
   /// Bulk toggle availability
   Future<void> _bulkToggleAvailability(List<MenuItem> items) async {
     try {
       final menuService = ref.read(menuServiceProvider);
+      final state = ref.read(menuScreenStateProvider);
       
       for (final item in items) {
-        if (_bulkSelected.contains(item.id)) {
+        if (state.bulkSelected.contains(item.id)) {
           await menuService.updateMenuItem(
             item.copyWith(isAvailable: !item.isAvailable),
           );
         }
       }
       
-      setState(() {
-        _bulkSelected.clear();
-      });
+      // Refresh the menu items provider to update UI immediately
+      ref.invalidate(menuItemsProvider);
+      
+      ref.read(menuScreenStateProvider.notifier).clearBulkSelection();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -225,11 +103,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
   /// Bulk delete items
   Future<void> _bulkDeleteItems(List<MenuItem> items) async {
+    final state = ref.read(menuScreenStateProvider);
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Items'),
-        content: Text('Are you sure you want to delete ${_bulkSelected.length} items?'),
+        content: Text('Are you sure you want to delete ${state.bulkSelected.length} items?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -250,14 +130,15 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
       final menuService = ref.read(menuServiceProvider);
       
       for (final item in items) {
-        if (_bulkSelected.contains(item.id)) {
+        if (state.bulkSelected.contains(item.id)) {
           await menuService.deleteMenuItem(item.id);
         }
       }
       
-      setState(() {
-        _bulkSelected.clear();
-      });
+      // Refresh the menu items provider to update UI immediately
+      ref.invalidate(menuItemsProvider);
+      
+      ref.read(menuScreenStateProvider.notifier).clearBulkSelection();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -293,6 +174,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           final messenger = ScaffoldMessenger.of(context);
           try {
             await ref.read(menuServiceProvider).updateMenuItem(updatedItem);
+            
+            // Refresh the menu items provider to update UI immediately
+            ref.invalidate(menuItemsProvider);
+            
             messenger.showSnackBar(
               const SnackBar(
                 content: Text('Item updated successfully'),
@@ -314,10 +199,16 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
+    // Watch state provider for all UI state
+    final state = ref.watch(menuScreenStateProvider);
+    
     final menuItemsAsync = ref.watch(menuItemsProvider);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
     final isTablet = screenWidth >= 600 && screenWidth < 1024;
+
+    // Watch dateRefreshProvider to ensure rebuild when date changes
+    ref.watch(dateRefreshProvider);
 
     return Scaffold(
       body: Column(
@@ -506,7 +397,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
         ],
       ),
       // Bulk Actions Bottom Bar (only show on All Items tab with selections)
-      bottomNavigationBar: _tabController.index == 0 && _bulkSelected.isNotEmpty
+      bottomNavigationBar: _tabController.index == 0 && state.bulkSelected.isNotEmpty
           ? BottomAppBar(
               elevation: 8,
               child: Padding(
@@ -514,7 +405,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                 child: Row(
                   children: [
                     Text(
-                      '${_bulkSelected.length} selected',
+                      '${state.bulkSelected.length} selected',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const Spacer(),
@@ -570,6 +461,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
   // Purpose: CRUD operations on food/drink items (Create, Read, Update, Delete)
   // NOT for scheduling - that's handled in Tab 2 (Weekly Menu)
   Widget _buildAllMenuItemsTab(AsyncValue<List<MenuItem>> menuItemsAsync) {
+    final state = ref.watch(menuScreenStateProvider);
+    final filteredItems = ref.watch(filteredMenuItemsProvider);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
     final isTablet = screenWidth >= 600 && screenWidth < 1024;
@@ -592,12 +485,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                         decoration: InputDecoration(
                           hintText: 'Search...',
                           prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchQuery.isNotEmpty
+                          suffixIcon: state.searchQuery.isNotEmpty
                               ? IconButton(
                                   icon: const Icon(Icons.clear),
                                   onPressed: () {
                                     _searchController.clear();
-                                    setState(() => _searchQuery = '');
+                                    ref.read(menuScreenStateProvider.notifier).updateSearchQuery('');
                                   },
                                 )
                               : null,
@@ -605,7 +498,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                         ),
                         onChanged: (value) {
-                          setState(() => _searchQuery = value.toLowerCase());
+                          ref.read(menuScreenStateProvider.notifier).updateSearchQuery(value.toLowerCase());
                         },
                       ),
                       const SizedBox(height: 12),
@@ -614,7 +507,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              initialValue: _selectedCategory,
+                              initialValue: state.selectedCategory,
                               decoration: const InputDecoration(
                                 labelText: 'Category',
                                 border: OutlineInputBorder(),
@@ -633,14 +526,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                                         )),
                               ],
                               onChanged: (value) {
-                                setState(() => _selectedCategory = value);
+                                ref.read(menuScreenStateProvider.notifier).setSelectedCategory(value);
                               },
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              initialValue: _sortBy,
+                              initialValue: state.sortBy,
                               decoration: const InputDecoration(
                                 labelText: 'Sort By',
                                 border: OutlineInputBorder(),
@@ -651,10 +544,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                                 DropdownMenuItem(value: 'name', child: Text('Name (A-Z)')),
                                 DropdownMenuItem(value: 'price', child: Text('Price (Low-High)')),
                                 DropdownMenuItem(value: 'updated', child: Text('Last Updated')),
-                                DropdownMenuItem(value: 'popularity', child: Text('Popularity')),
                               ],
                               onChanged: (value) {
-                                setState(() => _sortBy = value!);
+                                ref.read(menuScreenStateProvider.notifier).setSortBy(value!);
                               },
                             ),
                           ),
@@ -672,12 +564,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                           decoration: InputDecoration(
                             hintText: 'Search menu items...',
                             prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchQuery.isNotEmpty
+                            suffixIcon: state.searchQuery.isNotEmpty
                                 ? IconButton(
                                     icon: const Icon(Icons.clear),
                                     onPressed: () {
                                       _searchController.clear();
-                                      setState(() => _searchQuery = '');
+                                      ref.read(menuScreenStateProvider.notifier).updateSearchQuery('');
                                     },
                                   )
                                 : null,
@@ -685,7 +577,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           onChanged: (value) {
-                            setState(() => _searchQuery = value.toLowerCase());
+                            ref.read(menuScreenStateProvider.notifier).updateSearchQuery(value.toLowerCase());
                           },
                         ),
                       ),
@@ -694,7 +586,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                       ConstrainedBox(
                         constraints: const BoxConstraints(minWidth: 150, maxWidth: 200),
                         child: DropdownButtonFormField<String>(
-                          initialValue: _selectedCategory,
+                          initialValue: state.selectedCategory,
                           decoration: const InputDecoration(
                             labelText: 'Category',
                             border: OutlineInputBorder(),
@@ -713,7 +605,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                                     )),
                           ],
                           onChanged: (value) {
-                            setState(() => _selectedCategory = value);
+                            ref.read(menuScreenStateProvider.notifier).setSelectedCategory(value);
                           },
                         ),
                       ),
@@ -722,7 +614,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                       ConstrainedBox(
                         constraints: const BoxConstraints(minWidth: 150, maxWidth: 200),
                         child: DropdownButtonFormField<String>(
-                          initialValue: _sortBy,
+                          initialValue: state.sortBy,
                           decoration: const InputDecoration(
                             labelText: 'Sort By',
                             border: OutlineInputBorder(),
@@ -736,7 +628,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                             DropdownMenuItem(value: 'popularity', child: Text('Popularity', overflow: TextOverflow.ellipsis)),
                           ],
                           onChanged: (value) {
-                            setState(() => _sortBy = value!);
+                            ref.read(menuScreenStateProvider.notifier).setSortBy(value!);
                           },
                         ),
                       ),
@@ -755,96 +647,66 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                       children: [
                         FilterChip(
                           label: const Text('Available'),
-                          selected: _selectedFilters.contains('available'),
+                          selected: state.selectedFilters.contains('available'),
                           onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('available');
-                                _selectedFilters.remove('unavailable');
-                              } else {
-                                _selectedFilters.remove('available');
-                              }
-                            });
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('available');
+                            if (selected) {
+                              ref.read(menuScreenStateProvider.notifier).toggleFilter('unavailable');
+                            }
                           },
                         ),
                         FilterChip(
                           label: const Text('Unavailable'),
-                          selected: _selectedFilters.contains('unavailable'),
+                          selected: state.selectedFilters.contains('unavailable'),
                           onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('unavailable');
-                                _selectedFilters.remove('available');
-                              } else {
-                                _selectedFilters.remove('unavailable');
-                              }
-                            });
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('unavailable');
+                            if (selected) {
+                              ref.read(menuScreenStateProvider.notifier).toggleFilter('available');
+                            }
                           },
                         ),
                         FilterChip(
                           label: const Text('Vegan'),
                           avatar: const Icon(Icons.eco, size: 16),
-                          selected: _selectedFilters.contains('vegan'),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('vegan');
-                              } else {
-                                _selectedFilters.remove('vegan');
-                              }
-                            });
+                          selected: state.selectedFilters.contains('vegan'),
+                          onSelected: (_) {
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('vegan');
                           },
                         ),
                         FilterChip(
                           label: const Text('Vegetarian'),
                           avatar: const Icon(Icons.spa, size: 16),
-                          selected: _selectedFilters.contains('vegetarian'),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('vegetarian');
-                              } else {
-                                _selectedFilters.remove('vegetarian');
-                              }
-                            });
+                          selected: state.selectedFilters.contains('vegetarian'),
+                          onSelected: (_) {
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('vegetarian');
                           },
                         ),
                         FilterChip(
                           label: const Text('Gluten-Free'),
                           avatar: const Icon(Icons.grain, size: 16),
-                          selected: _selectedFilters.contains('gf'),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('gf');
-                              } else {
-                                _selectedFilters.remove('gf');
-                              }
-                            });
+                          selected: state.selectedFilters.contains('gf'),
+                          onSelected: (_) {
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('gf');
                           },
                         ),
                         FilterChip(
                           label: Text('Price < ${FormatUtils.currency(30)}'),
                           avatar: const Icon(Icons.currency_exchange, size: 16),
-                          selected: _selectedFilters.contains('price<30'),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedFilters.add('price<30');
-                              } else {
-                                _selectedFilters.remove('price<30');
-                              }
-                            });
+                          selected: state.selectedFilters.contains('price<30'),
+                          onSelected: (_) {
+                            ref.read(menuScreenStateProvider.notifier).toggleFilter('price<30');
                           },
                         ),
                       ],
                     ),
                   ),
-                  if (_selectedFilters.isNotEmpty || _bulkSelected.isNotEmpty)
+                  if (state.selectedFilters.isNotEmpty || state.bulkSelected.isNotEmpty)
                     IconButton(
                       icon: const Icon(Icons.clear_all),
                       tooltip: 'Clear All',
-                      onPressed: _clearAllFilters,
+                      onPressed: () {
+                        ref.read(menuScreenStateProvider.notifier).clearAllFilters();
+                      },
                     ),
                 ],
               ),
@@ -859,28 +721,11 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: menuItemsAsync.when(
-              data: (menuItems) {
-                // Apply search and category filters
-                var filteredItems = menuItems.where((item) {
-                  final matchesSearch = _searchQuery.isEmpty ||
-                      item.name.toLowerCase().contains(_searchQuery) ||
-                      item.description.toLowerCase().contains(_searchQuery) ||
-                      item.category.toLowerCase().contains(_searchQuery);
-                  final matchesCategory = _selectedCategory == null ||
-                      item.category == _selectedCategory;
-                  return matchesSearch && matchesCategory;
-                }).toList();
-
-                // Apply advanced filters
-                filteredItems = filteredItems.where(_matchesFilters).toList();
-                
-                // Apply sorting
-                filteredItems = _sortMenuItems(filteredItems);
-
+              data: (_) {
+                // Use filteredItems which is already filtered/sorted
                 if (filteredItems.isEmpty) {
                   return _buildEmptyState();
                 }
-
                 return _buildMenuGrid(filteredItems);
               },
               loading: () => const LoadingIndicator(text: 'Loading menu items...'),
@@ -922,40 +767,63 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
         return Consumer(
           builder: (context, ref, child) {
             final weeklyMenuService = ref.watch(weeklyMenuServiceProvider);
-            // Format week start date as YYYY-MM-DD
-            final weekStartString = '${_selectedWeek.year.toString().padLeft(4, '0')}-${_selectedWeek.month.toString().padLeft(2, '0')}-${_selectedWeek.day.toString().padLeft(2, '0')}';
+            final weeklyMenuState = ref.watch(menuScreenStateProvider);
             
-            return FutureBuilder<WeeklyMenu?>(
-              key: ValueKey('menu_$weekStartString$_menuRefreshKey'),
-              future: weeklyMenuService.getMenuForWeek(weekStartString),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const LoadingIndicator(text: 'Loading weekly menu...');
-                }
-                
-                final weeklyMenu = snapshot.data;
-                _currentMenuByDay = weeklyMenu?.menuByDay ?? _initializeEmptyMenu();
-                _isPublished = weeklyMenu?.isPublished ?? false;
-                
+            // Format week start date as YYYY-MM-DD
+            final weekStartString = '${weeklyMenuState.selectedWeek.year.toString().padLeft(4, '0')}-${weeklyMenuState.selectedWeek.month.toString().padLeft(2, '0')}-${weeklyMenuState.selectedWeek.day.toString().padLeft(2, '0')}';
+            
+            final weeklyMenuAsync = ref.watch(weeklyMenuProvider(weekStartString));
+            
+            return weeklyMenuAsync.when(
+              data: (currentMenuByDay) {
                 return Column(
                   children: [
                     // Week Navigation Header
-                    _buildWeekNavigationHeader(weeklyMenuService, weekStartString),
+                    _buildWeekNavigationHeader(weeklyMenuService, weekStartString, currentMenuByDay),
                     
                     const SizedBox(height: 16),
                     
                     // Day Tabs
-                    _buildDayTabs(),
+                    _buildDayTabs(currentMenuByDay),
                     
                     const SizedBox(height: 16),
                     
                     // Meal Type Sections
                     Expanded(
-                      child: _buildMealTypeSections(menuItems, weeklyMenuService, weekStartString),
+                      child: _buildMealTypeSections(menuItems, weeklyMenuService, weekStartString, currentMenuByDay),
                     ),
                   ],
                 );
               },
+              loading: () => const LoadingIndicator(text: 'Loading weekly menu...'),
+              error: (error, stack) => Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Error loading weekly menu',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(error.toString()),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final weekStartString = '${weeklyMenuState.selectedWeek.year.toString().padLeft(4, '0')}-${weeklyMenuState.selectedWeek.month.toString().padLeft(2, '0')}-${weeklyMenuState.selectedWeek.day.toString().padLeft(2, '0')}';
+                        final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
             );
           },
         );
@@ -983,22 +851,22 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     );
   }
 
-  // Initialize empty menu structure for new weeks
-  Map<String, Map<String, List<String>>> _initializeEmptyMenu() {
-    return {
-      'Monday': {MealType.snack: [], MealType.lunch: [], MealType.drinks: []},
-      'Tuesday': {MealType.snack: [], MealType.lunch: [], MealType.drinks: []},
-      'Wednesday': {MealType.snack: [], MealType.lunch: [], MealType.drinks: []},
-      'Thursday': {MealType.snack: [], MealType.lunch: [], MealType.drinks: []},
-      'Friday': {MealType.snack: [], MealType.lunch: [], MealType.drinks: []},
-    };
-  }
-
   // Week Navigation Header with controls
-  Widget _buildWeekNavigationHeader(dynamic weeklyMenuService, String weekStartString) {
+  Widget _buildWeekNavigationHeader(
+    dynamic weeklyMenuService, 
+    String weekStartString,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
+  ) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
-    
+    final state = ref.read(menuScreenStateProvider);
+    // Determine publish status using the entity provider (DB-backed)
+    final weeklyMenuEntityAsync = ref.watch(weeklyMenuEntityProvider(weekStartString));
+    final isPublished = weeklyMenuEntityAsync.maybeWhen(
+      data: (menu) => (menu?.publishStatus == PublishStatus.published),
+      orElse: () => false,
+    );
+
     return Container(
       padding: EdgeInsets.all(isMobile ? 12.0 : 16.0),
       decoration: BoxDecoration(
@@ -1016,12 +884,31 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
             children: [
               // Week Selector
               CompactWeekPicker(
-                selectedWeek: _selectedWeek,
+                selectedWeek: state.selectedWeek,
                 onWeekChanged: (newWeek) {
-                  setState(() {
-                    _selectedWeek = newWeek;
-                  });
+                  ref.read(menuScreenStateProvider.notifier).setSelectedWeek(newWeek);
                 },
+              ),
+              const SizedBox(height: 8),
+              // Status chip
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(
+                  avatar: Icon(
+                    isPublished ? Icons.check_circle : Icons.edit,
+                    size: 18,
+                    color: isPublished
+                        ? Colors.green
+                        : Theme.of(context).colorScheme.tertiary,
+                  ),
+                  label: Text(isPublished ? 'Published' : 'Draft'),
+                  backgroundColor: isPublished
+                      ? Colors.green.withValues(alpha: 0.08)
+                      : Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.2),
+                  side: BorderSide(
+                    color: isPublished ? Colors.green : Theme.of(context).colorScheme.tertiary,
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               // Mobile actions row
@@ -1029,14 +916,15 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _isPublished ? null : () async {
+                      onPressed: () async {
                         final messenger = ScaffoldMessenger.of(context);
+                        final weekStartString = '${state.selectedWeek.year.toString().padLeft(4, '0')}-${state.selectedWeek.month.toString().padLeft(2, '0')}-${state.selectedWeek.day.toString().padLeft(2, '0')}';
                         try {
-                          await weeklyMenuService.copyMenuFromPreviousWeek(_selectedWeek);
+                          await weeklyMenuService.copyMenuFromPreviousWeek(state.selectedWeek);
                           if (context.mounted) {
-                            setState(() {
-                              _menuRefreshKey++;
-                            });
+                            final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+                            // Also invalidate the entity provider so status chip updates immediately
+                            ref.invalidate(weeklyMenuEntityProvider(weekStartString));
                             messenger.showSnackBar(
                               const SnackBar(
                                 content: Text('Copied!'),
@@ -1063,16 +951,29 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _isPublished ? null : () => _handlePublishMenu(weeklyMenuService, weekStartString),
-                      icon: const Icon(Icons.publish, size: 18),
-                      label: const Text('Publish'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  if (!isPublished)
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => _handlePublishMenu(weeklyMenuService, weekStartString, currentMenuByDay),
+                        icon: const Icon(Icons.publish, size: 18),
+                        label: const Text('Publish'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                      ),
+                    )
+                  else ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _unpublishWeeklyMenu(weeklyMenuService, weekStartString),
+                        icon: const Icon(Icons.undo, size: 18),
+                        label: const Text('Unpublish'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ],
@@ -1082,27 +983,45 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
               // Week Selector (like analytics tab)
               Expanded(
                 child: CompactWeekPicker(
-                  selectedWeek: _selectedWeek,
+                  selectedWeek: state.selectedWeek,
                   onWeekChanged: (newWeek) {
-                    setState(() {
-                      _selectedWeek = newWeek;
-                    });
+                    ref.read(menuScreenStateProvider.notifier).setSelectedWeek(newWeek);
                   },
                 ),
               ),
               
               const SizedBox(width: 16),
+
+              // Status chip (desktop)
+              Chip(
+                avatar: Icon(
+                  isPublished ? Icons.check_circle : Icons.edit,
+                  size: 18,
+                  color: isPublished
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.tertiary,
+                ),
+                label: Text(isPublished ? 'Published' : 'Draft'),
+                backgroundColor: isPublished
+                    ? Colors.green.withValues(alpha: 0.08)
+                    : Theme.of(context).colorScheme.tertiaryContainer.withValues(alpha: 0.2),
+                side: BorderSide(
+                  color: isPublished ? Colors.green : Theme.of(context).colorScheme.tertiary,
+                ),
+              ),
+              const SizedBox(width: 12),
               
               // Copy Last Week Button
                 OutlinedButton.icon(
-                onPressed: _isPublished ? null : () async {
+                onPressed: () async {
                   final messenger = ScaffoldMessenger.of(context);
+                  final weekStartString = '${state.selectedWeek.year.toString().padLeft(4, '0')}-${state.selectedWeek.month.toString().padLeft(2, '0')}-${state.selectedWeek.day.toString().padLeft(2, '0')}';
                   try {
-                    await weeklyMenuService.copyMenuFromPreviousWeek(_selectedWeek);
+                    await weeklyMenuService.copyMenuFromPreviousWeek(state.selectedWeek);
                     if (context.mounted) {
-                      setState(() {
-                        _menuRefreshKey++; // Trigger UI refresh
-                      });
+                      final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+                      // Also invalidate the entity provider so status chip updates immediately
+                      ref.invalidate(weeklyMenuEntityProvider(weekStartString));
                       messenger.showSnackBar(
                         const SnackBar(
                           content: Text('Copied menu from last week!'),
@@ -1127,21 +1046,35 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
               
               const SizedBox(width: 8),
               
-              // Publish Button
-              FilledButton.icon(
-                onPressed: _isPublished ? null : () => _handlePublishMenu(weeklyMenuService, weekStartString),
-                icon: const Icon(Icons.publish),
-                label: const Text('Publish Menu'),
-              ),
+              // Publish / Unpublish Buttons
+              if (!isPublished)
+                FilledButton.icon(
+                  onPressed: () => _handlePublishMenu(weeklyMenuService, weekStartString, currentMenuByDay),
+                  icon: const Icon(Icons.publish),
+                  label: const Text('Publish Menu'),
+                )
+              else ...[
+                OutlinedButton.icon(
+                  onPressed: () => _unpublishWeeklyMenu(weeklyMenuService, weekStartString),
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Unpublish'),
+                ),
+              ],
             ],
           ),
     );
   }
   
   // Extract publish logic to separate method for reuse
-  Future<void> _handlePublishMenu(dynamic weeklyMenuService, String weekStartString) async {
+  Future<void> _handlePublishMenu(
+    dynamic weeklyMenuService, 
+    String weekStartString,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
+  ) async {
+    final state = ref.read(menuScreenStateProvider);
+    
     // Validate menu
-    final validation = weeklyMenuService.validateMenu(_currentMenuByDay);
+    final validation = weeklyMenuService.validateMenu(currentMenuByDay);
     if (!validation['isValid']) {
       if (context.mounted) {
         showDialog(
@@ -1167,19 +1100,68 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
       }
       return;
     }
+
+    // Availability validation (warnings only)
+    final availability = await weeklyMenuService.validateMenuItemsAvailability(currentMenuByDay);
+    if (availability['warnings'] != null && (availability['warnings'] as List).isNotEmpty) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Publish with Warnings?'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Some items are unavailable or missing:'),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 160,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var w in (availability['warnings'] as List)) Text('• $w'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text('Do you want to publish anyway?'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Publish Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) {
+        return;
+      }
+    }
               
     // Publish menu
     final messenger = ScaffoldMessenger.of(context);
+    final weekStartString = '${state.selectedWeek.year.toString().padLeft(4, '0')}-${state.selectedWeek.month.toString().padLeft(2, '0')}-${state.selectedWeek.day.toString().padLeft(2, '0')}';
     try {
       await weeklyMenuService.publishWeeklyMenu(
-        weekStartDate: _selectedWeek,
-        menuByDay: _currentMenuByDay,
-        publishedBy: 'admin',
+        weekStartDate: state.selectedWeek,
+        menuByDay: currentMenuByDay,
       );
       if (context.mounted) {
-        setState(() {
-          _menuRefreshKey++; // Trigger UI refresh
-        });
+        // Refresh the specific provider instance with the current week parameter
+  final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+  // Also invalidate the entity provider so status chip updates immediately
+  ref.invalidate(weeklyMenuEntityProvider(weekStartString));
         messenger.showSnackBar(
           const SnackBar(
             content: Text('Weekly menu published successfully!'),
@@ -1199,11 +1181,64 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     }
   }
 
+  // Unpublish by setting status to draft for the selected week
+  Future<void> _unpublishWeeklyMenu(
+    dynamic weeklyMenuService,
+    String weekStartString,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unpublish Menu'),
+        content: const Text('This will mark this week\'s menu as Draft. It will no longer be visible to customers. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Unpublish'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      // Use selectedWeek as the source of truth
+      final state = ref.read(menuScreenStateProvider);
+      await weeklyMenuService.unpublishWeeklyMenu(state.selectedWeek);
+  // Refresh providers so UI shows Draft status and buttons update
+  final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+  ref.invalidate(weeklyMenuEntityProvider(weekStartString));
+      if (context.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Menu unpublished'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Error unpublishing: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   // Day Tabs (Monday-Friday)
-  Widget _buildDayTabs() {
+  Widget _buildDayTabs(Map<String, Map<String, List<String>>> currentMenuByDay) {
     final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
+    final state = ref.read(menuScreenStateProvider);
     
     return Container(
       height: isMobile ? 44 : 48,
@@ -1229,8 +1264,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           separatorBuilder: (context, index) => SizedBox(width: isMobile ? 4 : 8),
           itemBuilder: (context, index) {
             final day = days[index];
-            final isSelected = _selectedDay == day;
-            final completionStatus = _getDayCompletionStatus(day);
+            final isSelected = state.selectedDay == day;
+            final completionStatus = _getDayCompletionStatus(day, currentMenuByDay);
             
             return ConstrainedBox(
               constraints: BoxConstraints(
@@ -1251,11 +1286,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    SizedBox(width: isMobile ? 4 : 6),
-                    Text(
-                      completionStatus,
-                      style: TextStyle(fontSize: isMobile ? 12 : 14),
-                    ),
+                    if (completionStatus.isNotEmpty) ...[
+                      SizedBox(width: isMobile ? 4 : 6),
+                      Text(
+                        completionStatus,
+                        style: TextStyle(fontSize: isMobile ? 12 : 14),
+                      ),
+                    ],
                   ],
                 ),
                 selected: isSelected,
@@ -1265,9 +1302,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                 ),
                 onSelected: (selected) {
                   if (selected) {
-                    setState(() {
-                      _selectedDay = day;
-                    });
+                    ref.read(menuScreenStateProvider.notifier).setSelectedDay(day);
                   }
                 },
               ),
@@ -1279,10 +1314,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
   }
 
   // Get completion status indicator for a day
-  String _getDayCompletionStatus(String day) {
-    if (!_currentMenuByDay.containsKey(day)) return '⬜';
+  String _getDayCompletionStatus(String day, Map<String, Map<String, List<String>>> currentMenuByDay) {
+    if (!currentMenuByDay.containsKey(day)) return '';
     
-    final dayMenu = _currentMenuByDay[day]!;
+    final dayMenu = currentMenuByDay[day]!;
     int filledSections = 0;
     int totalSections = MealType.all.length;
     
@@ -1292,18 +1327,25 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
       }
     }
     
-    if (filledSections == 0) return '⬜';
+    if (filledSections == 0) return '';
     if (filledSections == totalSections) return '🟩';
     return '🟨';
   }
 
   // Meal Type Sections with collapsible ExpansionTiles
-  Widget _buildMealTypeSections(List<MenuItem> menuItems, dynamic weeklyMenuService, String weekStartString) {
+  Widget _buildMealTypeSections(
+    List<MenuItem> menuItems, 
+    dynamic weeklyMenuService, 
+    String weekStartString,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
+  ) {
+    final state = ref.read(menuScreenStateProvider);
+    
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
         Text(
-          '$_selectedDay Menu',
+          '${state.selectedDay} Menu',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
             color: Theme.of(context).colorScheme.primary,
@@ -1312,12 +1354,24 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
         const Divider(),
         const SizedBox(height: 8),
         
+        // Breakfast Section
+        _buildMealTypeSection(
+          mealType: MealType.breakfast,
+          menuItems: menuItems,
+          weeklyMenuService: weeklyMenuService,
+          weekStartString: weekStartString,
+          currentMenuByDay: currentMenuByDay,
+        ),
+        
+        const SizedBox(height: 8),
+        
         // Snack Section
         _buildMealTypeSection(
           mealType: MealType.snack,
           menuItems: menuItems,
           weeklyMenuService: weeklyMenuService,
           weekStartString: weekStartString,
+          currentMenuByDay: currentMenuByDay,
         ),
         
         const SizedBox(height: 8),
@@ -1328,6 +1382,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           menuItems: menuItems,
           weeklyMenuService: weeklyMenuService,
           weekStartString: weekStartString,
+          currentMenuByDay: currentMenuByDay,
         ),
         
         const SizedBox(height: 8),
@@ -1338,6 +1393,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           menuItems: menuItems,
           weeklyMenuService: weeklyMenuService,
           weekStartString: weekStartString,
+          currentMenuByDay: currentMenuByDay,
         ),
       ],
     );
@@ -1349,8 +1405,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     required List<MenuItem> menuItems,
     required dynamic weeklyMenuService,
     required String weekStartString,
+    required Map<String, Map<String, List<String>>> currentMenuByDay,
   }) {
-    final selectedItemIds = _currentMenuByDay[_selectedDay]?[mealType] ?? [];
+    final state = ref.read(menuScreenStateProvider);
+    final selectedItemIds = currentMenuByDay[state.selectedDay]?[mealType] ?? [];
     final selectedItems = menuItems.where((item) => selectedItemIds.contains(item.id)).toList();
     final maxItems = MealType.maxItems[mealType] ?? 5;
     final icon = MealType.icons[mealType] ?? '📋';
@@ -1387,16 +1445,17 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                     leading: const Icon(Icons.check_circle, color: Colors.green),
                     title: Text(item.name),
                     subtitle: Text(FormatUtils.currency(item.price)),
-                    trailing: _isPublished ? null : IconButton(
+                    trailing: IconButton(
                       icon: const Icon(Icons.remove_circle_outline),
                       color: Colors.red,
                       onPressed: () async {
                         await _removeItemFromMenu(
                           weeklyMenuService,
                           weekStartString,
-                          _selectedDay,
+                          state.selectedDay,
                           mealType,
                           item.id,
+                          currentMenuByDay,
                         );
                       },
                     ),
@@ -1405,7 +1464,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                 const SizedBox(height: 16),
                 
                 // Add Item Button
-                if (selectedItems.length < maxItems && !_isPublished)
+                if (selectedItems.length < maxItems)
                   Center(
                     child: OutlinedButton.icon(
                       onPressed: () {
@@ -1415,6 +1474,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                           displayName,
                           weeklyMenuService,
                           weekStartString,
+                          currentMenuByDay,
                         );
                       },
                       icon: const Icon(Icons.add),
@@ -1447,19 +1507,20 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     String day,
     String mealType,
     String itemId,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final updatedMenuByDay = Map<String, Map<String, List<String>>>.from(_currentMenuByDay);
+      final updatedMenuByDay = Map<String, Map<String, List<String>>>.from(currentMenuByDay);
       updatedMenuByDay[day] = Map<String, List<String>>.from(updatedMenuByDay[day] ?? {});
-      updatedMenuByDay[day]![mealType] = List<String>.from(updatedMenuByDay[day]![mealType] ?? []);
-      updatedMenuByDay[day]![mealType]!.remove(itemId);
+      final dbKey = _dbMealKey(mealType);
+      updatedMenuByDay[day]![dbKey] = List<String>.from(updatedMenuByDay[day]![dbKey] ?? []);
+      updatedMenuByDay[day]![dbKey]!.remove(itemId);
       await weeklyMenuService.updateWeeklyMenu(weekStartString, updatedMenuByDay);
       
-      // Update local state to trigger UI refresh
-      setState(() {
-        _currentMenuByDay = updatedMenuByDay;
-      });
+  // Refresh the specific providers with the current week parameter
+  final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+  ref.invalidate(weeklyMenuEntityProvider(weekStartString));
       
       if (context.mounted) {
         messenger.showSnackBar(
@@ -1481,6 +1542,25 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     }
   }
 
+  // Normalize UI mealType/display labels to DB keys
+  String _dbMealKey(String mealType) {
+    final k = mealType.toLowerCase().trim();
+    switch (k) {
+      case 'breakfast':
+        return 'breakfast';
+      case 'lunch':
+        return 'lunch';
+      case 'snack':
+      case 'snacks':
+        return 'snack';
+      case 'drink':
+      case 'drinks':
+        return 'drinks';
+      default:
+        return k;
+    }
+  }
+
   // Show Add Item Dialog
   void _showAddItemDialog(
     List<MenuItem> menuItems,
@@ -1488,26 +1568,22 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     String displayName,
     dynamic weeklyMenuService,
     String weekStartString,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
   ) {
+    final state = ref.read(menuScreenStateProvider);
+    
     // Filter items by meal type category
-    // Drinks meal type shows ONLY Drinks items
-    // Lunch meal type shows ONLY Lunch items
-    // Snack meal type shows ONLY Snack items
+    // Use MenuCategory constants to match with MenuItem categories
     final availableItems = menuItems.where((item) {
       if (!item.isAvailable) return false;
       
-      // Each meal type now shows only its matching category
-      if (mealType == MealType.drinks) {
-        return item.category == 'Drinks';
-      } else if (mealType == MealType.lunch) {
-        return item.category == 'Lunch';
-      } else {
-        // Snack section
-        return item.category == 'Snack';
-      }
+      // Convert meal type to menu category and match
+      final categoryForMealType = MenuCategory.fromMealType(mealType);
+      return item.category == categoryForMealType;
     }).toList();
     
-    final selectedItemIds = _currentMenuByDay[_selectedDay]?[mealType] ?? [];
+  final dbKey = _dbMealKey(mealType);
+  final selectedItemIds = currentMenuByDay[state.selectedDay]?[dbKey] ?? [];
     final unselectedItems = availableItems
         .where((item) => !selectedItemIds.contains(item.id))
         .toList();
@@ -1515,7 +1591,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     showDialog(
       context: context,
       builder: (context) => _AddItemDialog(
-        day: _selectedDay,
+        day: state.selectedDay,
         mealType: mealType,
         displayName: displayName,
         availableItems: unselectedItems,
@@ -1523,9 +1599,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           await _addItemsToMenu(
             weeklyMenuService,
             weekStartString,
-            _selectedDay,
+            state.selectedDay,
             mealType,
             selectedIds,
+            currentMenuByDay,
           );
         },
         maxItems: MealType.maxItems[mealType] ?? 5,
@@ -1541,19 +1618,20 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     String day,
     String mealType,
     List<String> itemIds,
+    Map<String, Map<String, List<String>>> currentMenuByDay,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final updatedMenuByDay = Map<String, Map<String, List<String>>>.from(_currentMenuByDay);
+      final updatedMenuByDay = Map<String, Map<String, List<String>>>.from(currentMenuByDay);
       updatedMenuByDay[day] = Map<String, List<String>>.from(updatedMenuByDay[day] ?? {});
-      updatedMenuByDay[day]![mealType] = List<String>.from(updatedMenuByDay[day]![mealType] ?? []);
-      updatedMenuByDay[day]![mealType]!.addAll(itemIds);
+      final dbKey = _dbMealKey(mealType);
+      updatedMenuByDay[day]![dbKey] = List<String>.from(updatedMenuByDay[day]![dbKey] ?? []);
+      updatedMenuByDay[day]![dbKey]!.addAll(itemIds);
       await weeklyMenuService.updateWeeklyMenu(weekStartString, updatedMenuByDay);
       
-      // Update local state to trigger UI refresh
-      setState(() {
-        _currentMenuByDay = updatedMenuByDay;
-      });
+  // Refresh the specific providers with the current week parameter
+  final _ = await ref.refresh(weeklyMenuProvider(weekStartString).future);
+  ref.invalidate(weeklyMenuEntityProvider(weekStartString));
       
       if (context.mounted) {
         messenger.showSnackBar(
@@ -1585,8 +1663,11 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
         // Get menu items
         final menuItems = menuItemsAsync.value ?? [];
         
+        // Get analytics state
+        final analyticsState = ref.watch(menuScreenStateProvider);
+        
         // Format week start date as string (yyyy-MM-dd)
-        final weekStartString = '${_analyticsWeek.year.toString().padLeft(4, '0')}-${_analyticsWeek.month.toString().padLeft(2, '0')}-${_analyticsWeek.day.toString().padLeft(2, '0')}';
+        final weekStartString = '${analyticsState.analyticsWeek.year.toString().padLeft(4, '0')}-${analyticsState.analyticsWeek.month.toString().padLeft(2, '0')}-${analyticsState.analyticsWeek.day.toString().padLeft(2, '0')}';
 
         return Column(
           children: [
@@ -1613,11 +1694,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         CompactWeekPicker(
-                          selectedWeek: _analyticsWeek,
+                          selectedWeek: analyticsState.analyticsWeek,
                           onWeekChanged: (newWeek) {
-                            setState(() {
-                              _analyticsWeek = newWeek;
-                            });
+                            ref.read(menuScreenStateProvider.notifier).setAnalyticsWeek(newWeek);
                           },
                         ),
                         const SizedBox(height: 12),
@@ -1641,32 +1720,34 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                               child: FilledButton.icon(
                                 onPressed: () async {
                                   try {
-                                      final messenger = ScaffoldMessenger.of(context);
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Recalculating analytics...'),
+                                        duration: Duration(seconds: 2),
+                                      ),
+                                    );
+                                    await analyticsService.calculateAnalyticsForWeek(weekStartString);
+                                    // Force UI to pick up latest analytics
+                                    ref.invalidate(weeklyMenuAnalyticsProvider(weekStartString));
+                                    if (context.mounted) {
                                       messenger.showSnackBar(
                                         const SnackBar(
-                                          content: Text('Recalculating analytics...'),
-                                          duration: Duration(seconds: 2),
+                                          content: Text('Analytics updated successfully!'),
+                                          backgroundColor: Colors.green,
                                         ),
                                       );
-                                      await analyticsService.calculateAnalyticsForWeek(weekStartString);
-                                      if (context.mounted) {
-                                        messenger.showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Analytics updated successfully!'),
-                                            backgroundColor: Colors.green,
-                                          ),
-                                        );
-                                      }
-                                    } catch (e) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Error updating analytics: $e'),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
-                                      }
                                     }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Error updating analytics: $e'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  }
                                 },
                                 icon: const Icon(Icons.refresh),
                                 label: const Text('Refresh'),
@@ -1682,11 +1763,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                       children: [
                         Expanded(
                           child: CompactWeekPicker(
-                            selectedWeek: _analyticsWeek,
+                            selectedWeek: analyticsState.analyticsWeek,
                             onWeekChanged: (newWeek) {
-                              setState(() {
-                                _analyticsWeek = newWeek;
-                              });
+                              ref.read(menuScreenStateProvider.notifier).setAnalyticsWeek(newWeek);
                             },
                           ),
                         ),
@@ -1715,6 +1794,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                                 ),
                               );
                               await analyticsService.calculateAnalyticsForWeek(weekStartString);
+                              // Invalidate provider to refresh UI
+                              ref.invalidate(weeklyMenuAnalyticsProvider(weekStartString));
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -1746,15 +1827,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
             // Analytics Content
             Expanded(
-              child: StreamBuilder<WeeklyMenuAnalytics?>(
-                stream: analyticsService.streamAnalyticsForWeek(weekStartString),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  
-                  if (snapshot.hasError) {
-                    return Center(
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final analyticsAsync = ref.watch(weeklyMenuAnalyticsProvider(weekStartString));
+                  return analyticsAsync.when(
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (err, stack) => Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -1769,70 +1847,70 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const SizedBox(height: 8),
-                          Text(snapshot.error.toString()),
+                          Text(err.toString()),
                         ],
                       ),
-                    );
-                  }
-                  
-                  final analytics = snapshot.data;
-                  
-                  if (analytics == null) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.analytics_outlined,
-                            size: 64,
-                            color: Theme.of(context).colorScheme.outline,
+                    ),
+                    data: (analytics) {
+                      if (analytics == null) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.analytics_outlined,
+                                size: 64,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No analytics available for this week',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Analytics are generated from parent orders',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.icon(
+                                onPressed: () async {
+                                  try {
+                                    await analyticsService.calculateAnalyticsForWeek(weekStartString);
+                                    // Invalidate so UI updates when inserted
+                                    ref.invalidate(weeklyMenuAnalyticsProvider(weekStartString));
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Analytics calculated!'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Error: $e'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+                                icon: const Icon(Icons.calculate),
+                                label: const Text('Calculate Analytics'),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No analytics available for this week',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Analytics are generated from parent orders',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          FilledButton.icon(
-                            onPressed: () async {
-                              try {
-                                await analyticsService.calculateAnalyticsForWeek(weekStartString);
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Analytics calculated!'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Error: $e'),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.calculate),
-                            label: const Text('Calculate Analytics'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
+                        );
+                      }
 
-                  // Display Charts
-                  return _buildAnalyticsContent(analytics, analyticsService, weekStartString, menuItems);
+                      return _buildAnalyticsContent(analytics, analyticsService, weekStartString, menuItems, analyticsState);
+                    },
+                  );
                 },
               ),
             ),
@@ -1847,6 +1925,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     dynamic analyticsService,
     String weekStartString,
     List<MenuItem> menuItems,
+    MenuScreenUiState analyticsState,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -2015,24 +2094,20 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                   const SizedBox(width: 8),
                   FilterChip(
                     label: const Text('Overall'),
-                    selected: !_showCategorical,
+                    selected: !analyticsState.showCategorical,
                     onSelected: (selected) {
                       if (selected) {
-                        setState(() {
-                          _showCategorical = false;
-                        });
+                        ref.read(menuScreenStateProvider.notifier).setShowCategorical(false);
                       }
                     },
                   ),
                   const SizedBox(width: 8),
                   FilterChip(
                     label: const Text('By Category'),
-                    selected: _showCategorical,
+                    selected: analyticsState.showCategorical,
                     onSelected: (selected) {
                       if (selected) {
-                        setState(() {
-                          _showCategorical = true;
-                        });
+                        ref.read(menuScreenStateProvider.notifier).setShowCategorical(true);
                       }
                     },
                   ),
@@ -2043,7 +2118,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
               // Top Items Chart
               Text(
-                _showCategorical ? 'Most Popular Items by Category' : 'Most Popular Items',
+                analyticsState.showCategorical ? 'Most Popular Items by Category' : 'Most Popular Items',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -2054,7 +2129,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                   padding: const EdgeInsets.all(16.0),
                   child: SizedBox(
                     height: isMobile ? 300 : 340,
-                    child: _showCategorical
+                    child: analyticsState.showCategorical
                         ? CategoricalTopItemsChart(
                             analytics: analytics,
                             menuItems: menuItems,
@@ -2071,7 +2146,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
               // Orders Per Day Chart
               Text(
-                _showCategorical ? 'Orders by Day (by Category)' : 'Orders by Day',
+                analyticsState.showCategorical ? 'Orders by Day (by Category)' : 'Orders by Day',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -2082,7 +2157,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                   padding: const EdgeInsets.all(16.0),
                   child: SizedBox(
                     height: isMobile ? 280 : 320,
-                    child: _showCategorical
+                    child: analyticsState.showCategorical
                         ? CategoricalOrdersPerDayChart(
                             analytics: analytics,
                             menuItems: menuItems,
@@ -2186,6 +2261,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
   // Old _handlePublishWeeklyMenu method removed - now using inline publish logic in header
 
   Widget _buildEmptyState() {
+    final state = ref.read(menuScreenStateProvider);
+    
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -2202,7 +2279,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
           ),
           const SizedBox(height: 8),
           Text(
-            _searchQuery.isEmpty && _selectedCategory == null && !_availableOnly
+            state.searchQuery.isEmpty && state.selectedCategory == null && state.selectedFilters.isEmpty
                 ? 'Create your first food/drink item to build your menu catalog'
                 : 'Try adjusting your filters',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -2250,10 +2327,11 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
-    final isSelected = _bulkSelected.contains(item.id);
+    final state = ref.read(menuScreenStateProvider);
+    final isSelected = state.bulkSelected.contains(item.id);
 
     return Semantics(
-  label: '${item.name}, ${FormatUtils.currency(item.price)}, ${item.isAvailable ? 'Available' : 'Unavailable'}. ${item.isVegan ? 'Vegan.' : ''} ${item.isGlutenFree ? 'Gluten-free.' : ''}',
+  label: '${item.name}, ${FormatUtils.currency(item.price)}, ${item.isAvailable ? 'Available' : 'Unavailable'}. ${item.dietaryLabels.isEmpty ? '' : '${item.dietaryLabels.join(', ')}.'}',
       button: true,
       child: GestureDetector(
         onTap: () => _showQuickEditDialog(item),
@@ -2437,75 +2515,71 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                               spacing: 4,
                               runSpacing: 3,
                               children: [
-                                if (item.isVegetarian)
-                                  Tooltip(
-                                    message: 'Vegetarian',
+                                // Display all dietary labels dynamically
+                                ...item.dietaryLabels.map((label) {
+                                  // Determine appearance based on label
+                                  Color? bgColor;
+                                  Color? borderColor;
+                                  IconData icon;
+                                  String displayText;
+                                  
+                                  if (label.toLowerCase() == 'vegetarian') {
+                                    bgColor = Colors.green[50];
+                                    borderColor = Colors.green[700];
+                                    icon = Icons.eco;
+                                    displayText = 'Veg';
+                                  } else if (label.toLowerCase() == 'vegan') {
+                                    bgColor = Colors.green[100];
+                                    borderColor = Colors.green[900];
+                                    icon = Icons.spa;
+                                    displayText = 'Vegan';
+                                  } else if (label.toLowerCase().contains('gluten')) {
+                                    bgColor = Colors.amber[50];
+                                    borderColor = Colors.amber[700];
+                                    icon = Icons.grain;
+                                    displayText = 'GF';
+                                  } else if (label.toLowerCase().contains('halal')) {
+                                    bgColor = Colors.teal[50];
+                                    borderColor = Colors.teal[700];
+                                    icon = Icons.mosque;
+                                    displayText = 'Halal';
+                                  } else if (label.toLowerCase().contains('kosher')) {
+                                    bgColor = Colors.blue[50];
+                                    borderColor = Colors.blue[700];
+                                    icon = Icons.star;
+                                    displayText = 'Kosher';
+                                  } else {
+                                    bgColor = Colors.purple[50];
+                                    borderColor = Colors.purple[700];
+                                    icon = Icons.label;
+                                    displayText = label.length > 4 ? label.substring(0, 4) : label;
+                                  }
+                                  
+                                  return Tooltip(
+                                    message: label,
                                     child: Container(
                                       padding: EdgeInsets.symmetric(
                                         horizontal: isMobile ? 4 : 6,
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.green[50],
+                                        color: bgColor,
                                         borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.green[700]!, width: 1),
+                                        border: Border.all(color: borderColor!, width: 1),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.eco, size: isMobile ? 12 : 13, color: Colors.green[700]),
+                                          Icon(icon, size: isMobile ? 12 : 13, color: borderColor),
                                           const SizedBox(width: 2),
-                                          Text('Veg', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.green[700])),
+                                          Text(displayText, style: TextStyle(fontSize: isMobile ? 9 : 10, color: borderColor)),
                                         ],
                                       ),
                                     ),
-                                  ),
-                                if (item.isVegan)
-                                  Tooltip(
-                                    message: 'Vegan',
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 4 : 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green[100],
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.green[900]!, width: 1),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.spa, size: isMobile ? 12 : 13, color: Colors.green[900]),
-                                          const SizedBox(width: 2),
-                                          Text('Vegan', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.green[900])),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                if (item.isGlutenFree)
-                                  Tooltip(
-                                    message: 'Gluten Free',
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 4 : 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.amber[50],
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.amber[700]!, width: 1),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.grain, size: isMobile ? 12 : 13, color: Colors.amber[700]),
-                                          const SizedBox(width: 2),
-                                          Text('GF', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.amber[700])),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                                  );
+                                }),
+                                
+                                // Allergen badge
                                 if (item.allergens.isNotEmpty)
                                   Tooltip(
                                     message: 'Allergens: ${item.allergens.join(", ")}',
@@ -2525,55 +2599,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                                           Icon(Icons.warning_amber, size: isMobile ? 12 : 13, color: Colors.orange[700]),
                                           const SizedBox(width: 2),
                                           Text('Allergens', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.orange[700])),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                if (item.calories != null)
-                                  Tooltip(
-                                    message: '${item.calories} calories per serving',
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 4 : 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.blue[50],
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.blue[700]!, width: 1),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.local_fire_department, size: isMobile ? 12 : 13, color: Colors.blue[700]),
-                                          const SizedBox(width: 2),
-                                          Text('${item.calories}kcal', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.blue[700])),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                if (item.stockQuantity != null)
-                                  Tooltip(
-                                    message: 'Stock: ${item.stockQuantity}',
-                                    child: Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 4 : 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: theme.colorScheme.primary, width: 1),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.inventory_2, size: isMobile ? 12 : 13, color: theme.colorScheme.primary),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            '${item.stockQuantity}',
-                                            style: TextStyle(fontSize: isMobile ? 9 : 10, color: theme.colorScheme.primary),
-                                          ),
                                         ],
                                       ),
                                     ),
@@ -2665,7 +2690,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
                     top: 8,
                     left: 8,
                     child: AnimatedOpacity(
-                      opacity: _bulkSelected.isNotEmpty || isSelected ? 1.0 : 0.3,
+                      opacity: state.bulkSelected.isNotEmpty || isSelected ? 1.0 : 0.3,
                       duration: const Duration(milliseconds: 200),
                       child: GestureDetector(
                         onTap: () => _toggleBulkSelection(item.id),
@@ -2701,6 +2726,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
   Future<void> _toggleAvailability(MenuItem item) async {
     try {
       await ref.read(menuServiceProvider).toggleAvailability(item.id, !item.isAvailable);
+      
+      // Refresh the menu items provider to update UI immediately
+      ref.invalidate(menuItemsProvider);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2725,7 +2754,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
     showDialog(
       context: context,
       builder: (context) => const MenuItemFormScreen(mode: MenuItemFormMode.add),
-    );
+    ).then((_) {
+      // Refresh menu items after dialog closes (whether item was added or not)
+      ref.invalidate(menuItemsProvider);
+    });
   }
 
   void _showEditMenuItemDialog(BuildContext context, MenuItem item) {
@@ -2735,7 +2767,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
         mode: MenuItemFormMode.edit,
         menuItem: item,
       ),
-    );
+    ).then((_) {
+      // Refresh menu items after dialog closes (whether item was edited or not)
+      ref.invalidate(menuItemsProvider);
+    });
   }
 
   Future<void> _confirmDelete(BuildContext context, MenuItem item) async {
@@ -2775,6 +2810,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
 
         // Delete menu item
         await ref.read(menuServiceProvider).deleteMenuItem(item.id);
+
+        // Refresh the menu items provider to update UI immediately
+        ref.invalidate(menuItemsProvider);
 
         if (!mounted) return;
         messenger.showSnackBar(
@@ -2831,7 +2869,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> with SingleTickerProvid
       // Close loading dialog using root navigator
       Navigator.of(context, rootNavigator: true).pop();
 
-      // Small delay to allow Firestore stream to update
+      // Refresh the menu items provider to update UI immediately
+      ref.invalidate(menuItemsProvider);
+
+      // Small delay to allow Supabase stream to update
       await Future.delayed(const Duration(milliseconds: 300));
 
       // Show result dialog
@@ -3174,10 +3215,7 @@ class _QuickEditDialog extends StatefulWidget {
 class _QuickEditDialogState extends State<_QuickEditDialog> {
   late TextEditingController _priceController;
   late TextEditingController _descriptionController;
-  late TextEditingController _caloriesController;
-  late bool _isVegan;
-  late bool _isVegetarian;
-  late bool _isGlutenFree;
+  late Set<String> _dietaryLabels;
   late bool _isAvailable;
 
   @override
@@ -3185,10 +3223,7 @@ class _QuickEditDialogState extends State<_QuickEditDialog> {
     super.initState();
     _priceController = TextEditingController(text: widget.item.price.toStringAsFixed(2));
     _descriptionController = TextEditingController(text: widget.item.description);
-    _caloriesController = TextEditingController(text: widget.item.calories?.toString() ?? '');
-    _isVegan = widget.item.isVegan;
-    _isVegetarian = widget.item.isVegetarian;
-    _isGlutenFree = widget.item.isGlutenFree;
+    _dietaryLabels = Set.from(widget.item.dietaryLabels);
     _isAvailable = widget.item.isAvailable;
   }
 
@@ -3196,7 +3231,6 @@ class _QuickEditDialogState extends State<_QuickEditDialog> {
   void dispose() {
     _priceController.dispose();
     _descriptionController.dispose();
-    _caloriesController.dispose();
     super.dispose();
   }
 
@@ -3284,39 +3318,57 @@ class _QuickEditDialogState extends State<_QuickEditDialog> {
                           ActionChip(
                             label: const Text('Vegan'),
                             avatar: Icon(
-                              _isVegan ? Icons.check_circle : Icons.circle_outlined,
+                              _dietaryLabels.contains('Vegan') ? Icons.check_circle : Icons.circle_outlined,
                               size: 18,
                             ),
                             onPressed: () {
-                              setState(() => _isVegan = !_isVegan);
+                              setState(() {
+                                if (_dietaryLabels.contains('Vegan')) {
+                                  _dietaryLabels.remove('Vegan');
+                                } else {
+                                  _dietaryLabels.add('Vegan');
+                                }
+                              });
                             },
-                            backgroundColor: _isVegan
+                            backgroundColor: _dietaryLabels.contains('Vegan')
                                 ? Colors.green.shade100
                                 : null,
                           ),
                           ActionChip(
                             label: const Text('Vegetarian'),
                             avatar: Icon(
-                              _isVegetarian ? Icons.check_circle : Icons.circle_outlined,
+                              _dietaryLabels.contains('Vegetarian') ? Icons.check_circle : Icons.circle_outlined,
                               size: 18,
                             ),
                             onPressed: () {
-                              setState(() => _isVegetarian = !_isVegetarian);
+                              setState(() {
+                                if (_dietaryLabels.contains('Vegetarian')) {
+                                  _dietaryLabels.remove('Vegetarian');
+                                } else {
+                                  _dietaryLabels.add('Vegetarian');
+                                }
+                              });
                             },
-                            backgroundColor: _isVegetarian
+                            backgroundColor: _dietaryLabels.contains('Vegetarian')
                                 ? Colors.green.shade100
                                 : null,
                           ),
                           ActionChip(
                             label: const Text('Gluten-Free'),
                             avatar: Icon(
-                              _isGlutenFree ? Icons.check_circle : Icons.circle_outlined,
+                              _dietaryLabels.contains('Gluten-Free') ? Icons.check_circle : Icons.circle_outlined,
                               size: 18,
                             ),
                             onPressed: () {
-                              setState(() => _isGlutenFree = !_isGlutenFree);
+                              setState(() {
+                                if (_dietaryLabels.contains('Gluten-Free')) {
+                                  _dietaryLabels.remove('Gluten-Free');
+                                } else {
+                                  _dietaryLabels.add('Gluten-Free');
+                                }
+                              });
                             },
-                            backgroundColor: _isGlutenFree
+                            backgroundColor: _dietaryLabels.contains('Gluten-Free')
                                 ? Colors.amber.shade100
                                 : null,
                           ),
@@ -3356,9 +3408,7 @@ class _QuickEditDialogState extends State<_QuickEditDialog> {
                       final updatedItem = widget.item.copyWith(
                         price: double.tryParse(_priceController.text) ?? widget.item.price,
                         description: _descriptionController.text,
-                        isVegan: _isVegan,
-                        isVegetarian: _isVegetarian,
-                        isGlutenFree: _isGlutenFree,
+                        dietaryLabels: _dietaryLabels.toList(),
                         isAvailable: _isAvailable,
                         updatedAt: DateTime.now(),
                       );

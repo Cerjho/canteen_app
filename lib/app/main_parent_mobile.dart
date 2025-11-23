@@ -58,6 +58,8 @@ class ParentApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
 
+    // Note: Deep-link to /complete-registration is handled in router redirect
+
     return ScreenUtilInit(
       designSize: const Size(360, 690), // Mobile-first base design
       minTextAdapt: true,

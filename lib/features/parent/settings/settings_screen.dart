@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/config/theme_mode_provider.dart';
 import '../student_link/student_link_screen.dart';
@@ -72,26 +73,46 @@ class SettingsScreen extends ConsumerWidget {
       padding: EdgeInsets.all(16.w),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 40.r,
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-            backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                ? NetworkImage(photoUrl)
-                : null,
-            onBackgroundImageError: photoUrl != null
-                ? (exception, stackTrace) {
-                    // Handle image load error silently
-                    // Falls back to showing the icon below
-                  }
-                : null,
-            child: photoUrl == null || photoUrl.isEmpty
-                ? Icon(
+          if (photoUrl != null && photoUrl.isNotEmpty)
+            SizedBox(
+              width: 80.w,
+              height: 80.w,
+              child: CachedNetworkImage(
+                imageUrl: photoUrl,
+                imageBuilder: (context, imageProvider) => CircleAvatar(
+                  radius: 40.r,
+                  backgroundImage: imageProvider,
+                ),
+                placeholder: (context, url) => CircleAvatar(
+                  radius: 40.r,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: SizedBox(
+                    width: 24.w,
+                    height: 24.w,
+                    child: const CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+                errorWidget: (context, url, error) => CircleAvatar(
+                  radius: 40.r,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: Icon(
                     Icons.person,
                     size: 40.sp,
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  )
-                : null,
-          ),
+                  ),
+                ),
+              ),
+            )
+          else
+            CircleAvatar(
+              radius: 40.r,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              child: Icon(
+                Icons.person,
+                size: 40.sp,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
+            ),
           SizedBox(height: 16.h),
           Text(
             user?.name ?? 'Parent User',
@@ -123,62 +144,128 @@ class SettingsScreen extends ConsumerWidget {
 
   /// Build linked children section
   Widget _buildLinkedChildrenSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: EdgeInsets.all(16.w),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Linked Children',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+    return Consumer(
+      builder: (context, ref, _) {
+        final linkedStudentsAsync = ref.watch(parentStudentsProvider);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.all(16.w),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Linked Children',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const StudentLinkScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.add_circle_outline),
+                    tooltip: 'Link New Student',
+                  ),
+                ],
               ),
-              IconButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const StudentLinkScreen(),
+            ),
+            linkedStudentsAsync.when(
+              data: (students) {
+                if (students.isEmpty) {
+                  return Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                    child: Text(
+                      'No linked students. Tap + to link a student.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                     ),
                   );
-                },
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: 'Link New Student',
+                }
+                return Column(
+                  children: students.map((student) {
+                    return ListTile(
+                      leading: student.photoUrl != null && student.photoUrl!.isNotEmpty
+                          ? SizedBox(
+                              width: 40.w,
+                              height: 40.w,
+                              child: CachedNetworkImage(
+                                imageUrl: student.photoUrl!,
+                                imageBuilder: (context, imageProvider) => CircleAvatar(
+                                  backgroundImage: imageProvider,
+                                ),
+                                placeholder: (context, url) => CircleAvatar(
+                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                  child: const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => CircleAvatar(
+                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                  child: Text(
+                                    student.firstName[0].toUpperCase(),
+                                    style: TextStyle(
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : CircleAvatar(
+                              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                              child: Text(
+                                student.firstName[0].toUpperCase(),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                      title: Text(student.fullName),
+                      subtitle: Text('${student.grade} • ID: ${student.id.substring(0, 8)}...'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Student details coming soon')),
+                          );
+                        },
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+              loading: () => Padding(
+                padding: EdgeInsets.all(16.w),
+                child: const SizedBox(
+                  height: 40,
+                  child: CircularProgressIndicator(),
+                ),
               ),
-            ],
-          ),
-        ),
-        ListTile(
-          leading: const CircleAvatar(child: Text('J')),
-          title: const Text('Juan Dela Cruz'),
-          subtitle: const Text('Grade 5 • Student ID: 12345'),
-          trailing: IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Student details coming soon')),
-              );
-            },
-          ),
-        ),
-        ListTile(
-          leading: const CircleAvatar(child: Text('M')),
-          title: const Text('Maria Dela Cruz'),
-          subtitle: const Text('Grade 3 • Student ID: 12346'),
-          trailing: IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Student details coming soon')),
-              );
-            },
-          ),
-        ),
-      ],
+              error: (error, stack) => Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                child: Text(
+                  'Error loading students: $error',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

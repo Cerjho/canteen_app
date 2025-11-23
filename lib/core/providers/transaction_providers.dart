@@ -8,8 +8,8 @@ import '../models/order.dart' as order_model;
 import '../models/topup.dart';
 import '../models/parent_transaction.dart';
 import 'supabase_providers.dart';
-import 'user_providers.dart';
 import 'date_refresh_provider.dart';
+import 'auth_providers.dart';
 
 // ============================================================================
 // ORDER & TOPUP SERVICE PROVIDERS
@@ -183,24 +183,10 @@ final parentOrdersProviderFamily = StreamProvider.family<List<order_model.Order>
 /// 
 /// Streams orders for the currently signed-in parent (all linked students).
 /// Returns: Stream<List<Order>>
-final parentOrdersProvider = StreamProvider<List<order_model.Order>>((ref) async* {
-  final students = ref.watch(parentStudentsProvider).value ?? [];
-  if (students.isEmpty) {
-    yield [];
-    return;
-  }
-
-  // Get orders for all students
-  final orderService = ref.watch(orderServiceProvider);
-  final allOrders = <order_model.Order>[];
-
-  for (final student in students) {
-    await for (final orders in orderService.getOrdersByStudent(student.id)) {
-      allOrders.addAll(orders);
-    }
-  }
-
-  yield allOrders;
+final parentOrdersProvider = StreamProvider<List<order_model.Order>>((ref) {
+  final currentUser = ref.watch(currentUserProvider).value;
+  if (currentUser == null) return const Stream.empty();
+  return ref.watch(orderServiceProvider).getOrdersByParent(currentUser.uid);
 });
 
 /// Order by ID Provider Family

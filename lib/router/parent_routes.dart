@@ -1,5 +1,8 @@
 import 'package:go_router/go_router.dart';
 import '../features/parent/parent_app.dart';
+import '../features/parent/auth/complete_registration_screen.dart';
+import '../features/parent/auth/link_student_screen.dart';
+import '../features/parent/auth/registration_success_screen.dart';
 
 /// Parent-only routes
 /// 
@@ -27,6 +30,20 @@ List<RouteBase> buildParentRoutes() {
     GoRoute(
       path: '/parent-dashboard',
       builder: (context, state) => const ParentApp(),
+    ),
+
+    // Registration completion flow (post verification)
+    GoRoute(
+      path: '/complete-registration',
+      builder: (context, state) => const CompleteRegistrationScreen(),
+    ),
+    GoRoute(
+      path: '/link-student',
+      builder: (context, state) => const LinkStudentScreen(),
+    ),
+    GoRoute(
+      path: '/registration-success',
+      builder: (context, state) => const RegistrationSuccessScreen(),
     ),
     
     // TODO: Add additional parent routes as they are implemented

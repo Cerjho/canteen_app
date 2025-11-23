@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/models/menu_item.dart';
+import '../../../core/models/weekly_menu.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/validation_utils.dart';
 
@@ -34,11 +35,9 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
   late final TextEditingController _priceController;
   late final TextEditingController _categoryController;
   late final TextEditingController _allergensController;
-  late final TextEditingController _stockQuantityController;
+  late final TextEditingController _prepTimeController;
 
-  bool _isVegetarian = false;
-  bool _isVegan = false;
-  bool _isGlutenFree = false;
+  final Set<String> _dietaryLabels = {};
   bool _isAvailable = true;
   bool _isLoading = false;
   bool _isUploadingImage = false;
@@ -59,9 +58,10 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
   ];
 
   final List<String> _categories = [
-    'Snack',
-    'Lunch',
-    'Drinks',
+    MenuCategory.breakfast,
+    MenuCategory.lunch,
+    MenuCategory.snack,
+    MenuCategory.drinks,
   ];
 
   @override
@@ -78,13 +78,13 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
     _allergensController = TextEditingController(
       text: item?.allergens.join(', ') ?? '',
     );
-    _stockQuantityController = TextEditingController(
-      text: item?.stockQuantity?.toString() ?? '',
+    _prepTimeController = TextEditingController(
+      text: item?.prepTimeMinutes?.toString() ?? '',
     );
 
-    _isVegetarian = item?.isVegetarian ?? false;
-    _isVegan = item?.isVegan ?? false;
-    _isGlutenFree = item?.isGlutenFree ?? false;
+    if (item != null) {
+      _dietaryLabels.addAll(item.dietaryLabels);
+    }
     _isAvailable = item?.isAvailable ?? true;
     _imageUrl = item?.imageUrl;
   }
@@ -96,7 +96,7 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
     _priceController.dispose();
     _categoryController.dispose();
     _allergensController.dispose();
-    _stockQuantityController.dispose();
+    _prepTimeController.dispose();
     super.dispose();
   }
 
@@ -241,8 +241,8 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 DropdownButtonFormField<String>(
-                                  initialValue: _categoryController.text.isNotEmpty
-                                      ? _categoryController.text
+                                  initialValue: _categoryController.text.trim().isNotEmpty && _categories.contains(_categoryController.text.trim())
+                                      ? _categoryController.text.trim()
                                       : null,
                                   decoration: const InputDecoration(
                                     labelText: 'Category *',
@@ -303,8 +303,8 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
-                                    initialValue: _categoryController.text.isNotEmpty
-                                        ? _categoryController.text
+                                    initialValue: _categoryController.text.trim().isNotEmpty && _categories.contains(_categoryController.text.trim())
+                                        ? _categoryController.text.trim()
                                         : null,
                                     decoration: const InputDecoration(
                                       labelText: 'Category *',
@@ -354,13 +354,13 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Stock Quantity (Optional)
+                      // Prep Time (Optional)
                       TextFormField(
-                        controller: _stockQuantityController,
+                        controller: _prepTimeController,
                         decoration: const InputDecoration(
-                          labelText: 'Stock Quantity',
-                          hintText: 'Leave empty for unlimited',
-                          prefixIcon: Icon(Icons.inventory_2),
+                          labelText: 'Preparation Time (minutes)',
+                          hintText: 'Leave empty if not applicable',
+                          prefixIcon: Icon(Icons.timer),
                           border: OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
@@ -378,29 +378,223 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
                       CheckboxListTile(
                         title: const Text('Vegetarian'),
                         subtitle: const Text('Contains no meat or fish'),
-                        value: _isVegetarian,
+                        value: _dietaryLabels.contains('Vegetarian'),
                         onChanged: _isLoading
                             ? null
-                            : (value) => setState(() => _isVegetarian = value ?? false),
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Vegetarian');
+                                  } else {
+                                    _dietaryLabels.remove('Vegetarian');
+                                  }
+                                });
+                              },
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                       CheckboxListTile(
                         title: const Text('Vegan'),
                         subtitle: const Text('Contains no animal products'),
-                        value: _isVegan,
+                        value: _dietaryLabels.contains('Vegan'),
                         onChanged: _isLoading
                             ? null
-                            : (value) => setState(() => _isVegan = value ?? false),
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Vegan');
+                                  } else {
+                                    _dietaryLabels.remove('Vegan');
+                                  }
+                                });
+                              },
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
                       CheckboxListTile(
                         title: const Text('Gluten Free'),
                         subtitle: const Text('Contains no gluten'),
-                        value: _isGlutenFree,
+                        value: _dietaryLabels.contains('Gluten-Free'),
                         onChanged: _isLoading
                             ? null
-                            : (value) => setState(() => _isGlutenFree = value ?? false),
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Gluten-Free');
+                                  } else {
+                                    _dietaryLabels.remove('Gluten-Free');
+                                  }
+                                });
+                              },
                         controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      
+                      // Additional common dietary labels
+                      CheckboxListTile(
+                        title: const Text('Halal'),
+                        subtitle: const Text('Prepared according to Islamic law'),
+                        value: _dietaryLabels.contains('Halal'),
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Halal');
+                                  } else {
+                                    _dietaryLabels.remove('Halal');
+                                  }
+                                });
+                              },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        title: const Text('Kosher'),
+                        subtitle: const Text('Prepared according to Jewish law'),
+                        value: _dietaryLabels.contains('Kosher'),
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Kosher');
+                                  } else {
+                                    _dietaryLabels.remove('Kosher');
+                                  }
+                                });
+                              },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        title: const Text('Dairy-Free'),
+                        subtitle: const Text('Contains no dairy products'),
+                        value: _dietaryLabels.contains('Dairy-Free'),
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Dairy-Free');
+                                  } else {
+                                    _dietaryLabels.remove('Dairy-Free');
+                                  }
+                                });
+                              },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        title: const Text('Nut-Free'),
+                        subtitle: const Text('Contains no nuts'),
+                        value: _dietaryLabels.contains('Nut-Free'),
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Nut-Free');
+                                  } else {
+                                    _dietaryLabels.remove('Nut-Free');
+                                  }
+                                });
+                              },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      CheckboxListTile(
+                        title: const Text('Organic'),
+                        subtitle: const Text('Made with organic ingredients'),
+                        value: _dietaryLabels.contains('Organic'),
+                        onChanged: _isLoading
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _dietaryLabels.add('Organic');
+                                  } else {
+                                    _dietaryLabels.remove('Organic');
+                                  }
+                                });
+                              },
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Display current custom labels
+                      if (_dietaryLabels.where((label) => 
+                        !['Vegetarian', 'Vegan', 'Gluten-Free', 'Halal', 'Kosher', 'Dairy-Free', 'Nut-Free', 'Organic'].contains(label)
+                      ).isNotEmpty) ...[
+                        Text(
+                          'Custom Dietary Labels',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _dietaryLabels.where((label) => 
+                            !['Vegetarian', 'Vegan', 'Gluten-Free', 'Halal', 'Kosher', 'Dairy-Free', 'Nut-Free', 'Organic'].contains(label)
+                          ).map((label) {
+                            return Chip(
+                              label: Text(label),
+                              onDeleted: _isLoading ? null : () {
+                                setState(() {
+                                  _dietaryLabels.remove(label);
+                                });
+                              },
+                              deleteIcon: const Icon(Icons.close, size: 18),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      
+                      // Add custom dietary label field
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              decoration: const InputDecoration(
+                                labelText: 'Add Custom Dietary Label',
+                                hintText: 'e.g., Low-Sodium, Sugar-Free',
+                                prefixIcon: Icon(Icons.add),
+                                border: OutlineInputBorder(),
+                                helperText: 'Press Enter to add',
+                              ),
+                              enabled: !_isLoading,
+                              textCapitalization: TextCapitalization.words,
+                              onSubmitted: (value) {
+                                if (value.trim().isNotEmpty) {
+                                  setState(() {
+                                    _dietaryLabels.add(value.trim());
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Preparation Time
+                      TextFormField(
+                        controller: _prepTimeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Preparation Time (minutes)',
+                          hintText: 'e.g., 15',
+                          prefixIcon: Icon(Icons.timer),
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        enabled: !_isLoading,
+                        validator: (value) {
+                          if (value != null && value.isNotEmpty) {
+                            final prepTime = int.tryParse(value);
+                            if (prepTime == null || prepTime < 0) {
+                              return 'Please enter a valid preparation time';
+                            }
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
 
@@ -649,9 +843,9 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
           .where((e) => e.isNotEmpty)
           .toList();
 
-      // Parse stock quantity
-      final stockQuantity = _stockQuantityController.text.isNotEmpty
-          ? int.tryParse(_stockQuantityController.text)
+      // Parse prep time
+      final prepTime = _prepTimeController.text.isNotEmpty
+          ? int.tryParse(_prepTimeController.text)
           : null;
 
       // Create/Update menu item
@@ -663,11 +857,9 @@ class _MenuItemFormScreenState extends ConsumerState<MenuItemFormScreen> {
         category: _categoryController.text.trim(),
         imageUrl: finalImageUrl,
         allergens: allergensList,
-        isVegetarian: _isVegetarian,
-        isVegan: _isVegan,
-        isGlutenFree: _isGlutenFree,
+        dietaryLabels: _dietaryLabels.toList(),
+        prepTimeMinutes: prepTime,
         isAvailable: _isAvailable,
-        stockQuantity: stockQuantity,
         createdAt: widget.menuItem?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
       );

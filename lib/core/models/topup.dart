@@ -89,21 +89,17 @@ class Topup {
     return {
       'id': id,
       'parent_id': parentId,
-      'parent_name': parentName,
-      'student_id': studentId,
-      'student_name': studentName,
+      // parent_name and student_name are UI-only fields, not in database
       'amount': amount,
       'status': status.name,
       'payment_method': paymentMethod.name,
-      'transaction_reference': transactionReference,
+      'reference_number': transactionReference, // Database uses reference_number
       'proof_image_url': proofImageUrl,
       'notes': notes,
       'admin_notes': adminNotes,
       'processed_by': processedBy,
-      'request_date': requestDate.toIso8601String(),
-      'processed_at': processedAt?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt?.toIso8601String(),
+      'processed_at': processedAt?.toIso8601String(),
     };
   }
 
@@ -113,9 +109,9 @@ class Topup {
     return Topup(
       id: map['id'] as String,
       parentId: (map['parent_id'] ?? map['parentId']) as String,
-      parentName: (map['parent_name'] ?? map['parentName']) as String,
+      parentName: (map['parent_name'] ?? map['parentName'] ?? '') as String, // UI-only field
       studentId: (map['student_id'] ?? map['studentId']) as String?,
-      studentName: (map['student_name'] ?? map['studentName']) as String?,
+      studentName: (map['student_name'] ?? map['studentName']) as String?, // UI-only field
       amount: (map['amount'] as num).toDouble(),
       status: TopupStatus.values.firstWhere(
         (e) => e.name == map['status'],
@@ -125,12 +121,12 @@ class Topup {
         (e) => e.name == (map['payment_method'] ?? map['paymentMethod']),
         orElse: () => PaymentMethod.cash,
       ),
-      transactionReference: (map['transaction_reference'] ?? map['transactionReference']) as String?,
+      transactionReference: (map['reference_number'] ?? map['transaction_reference'] ?? map['transactionReference']) as String?, // Database uses reference_number
       proofImageUrl: (map['proof_image_url'] ?? map['proofImageUrl']) as String?,
       notes: map['notes'] as String?,
       adminNotes: (map['admin_notes'] ?? map['adminNotes']) as String?,
       processedBy: (map['processed_by'] ?? map['processedBy']) as String?,
-      requestDate: DateTime.parse((map['request_date'] ?? map['requestDate']) as String),
+      requestDate: DateTime.parse((map['created_at'] ?? map['request_date'] ?? map['requestDate']) as String), // requestDate maps to created_at
       processedAt: (map['processed_at'] ?? map['processedAt']) != null
           ? DateTime.parse((map['processed_at'] ?? map['processedAt']) as String)
           : null,

@@ -109,12 +109,6 @@ class _MenuDetailPanelState extends State<MenuDetailPanel> {
                     // Dietary Information
                     _buildDietaryInfo(theme),
                     
-                    SizedBox(height: 24.h),
-                    
-                    // Nutritional Information
-                    if (widget.item.calories != null)
-                      _buildNutritionalInfo(theme),
-                    
                     // Allergen Information
                     if (widget.item.allergens.isNotEmpty) ...[
                       SizedBox(height: 24.h),
@@ -224,36 +218,9 @@ class _MenuDetailPanelState extends State<MenuDetailPanel> {
     );
   }
 
-  // Dietary information badges
+  // Dietary information badges - show all from dietaryLabels array
   Widget _buildDietaryInfo(ThemeData theme) {
-    final badges = <Widget>[];
-    
-    if (widget.item.isVegan) {
-      badges.add(_buildInfoBadge(
-        'Vegan',
-        Icons.eco,
-        Colors.green,
-        'This item is vegan',
-      ));
-    } else if (widget.item.isVegetarian) {
-      badges.add(_buildInfoBadge(
-        'Vegetarian',
-        Icons.spa,
-        Colors.lightGreen,
-        'This item is vegetarian',
-      ));
-    }
-    
-    if (widget.item.isGlutenFree) {
-      badges.add(_buildInfoBadge(
-        'Gluten-Free',
-        Icons.grain,
-        Colors.amber,
-        'This item is gluten-free',
-      ));
-    }
-    
-    if (badges.isEmpty) return const SizedBox.shrink();
+    if (widget.item.dietaryLabels.isEmpty) return const SizedBox.shrink();
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,7 +235,43 @@ class _MenuDetailPanelState extends State<MenuDetailPanel> {
         Wrap(
           spacing: 8.w,
           runSpacing: 8.h,
-          children: badges,
+          children: widget.item.dietaryLabels.map((label) {
+            // Determine icon and color based on label
+            IconData icon;
+            Color color;
+            
+            if (label.toLowerCase() == 'vegan') {
+              icon = Icons.eco;
+              color = Colors.green;
+            } else if (label.toLowerCase() == 'vegetarian') {
+              icon = Icons.spa;
+              color = Colors.lightGreen;
+            } else if (label.toLowerCase().contains('gluten')) {
+              icon = Icons.grain;
+              color = Colors.amber;
+            } else if (label.toLowerCase().contains('halal')) {
+              icon = Icons.mosque;
+              color = Colors.teal;
+            } else if (label.toLowerCase().contains('kosher')) {
+              icon = Icons.star;
+              color = Colors.blue;
+            } else if (label.toLowerCase().contains('dairy-free')) {
+              icon = Icons.no_meals;
+              color = Colors.cyan;
+            } else if (label.toLowerCase().contains('nut-free')) {
+              icon = Icons.block;
+              color = Colors.brown;
+            } else if (label.toLowerCase().contains('organic')) {
+              icon = Icons.nature;
+              color = Colors.green[700]!;
+            } else {
+              // Generic icon for any other dietary label
+              icon = Icons.label;
+              color = Colors.purple;
+            }
+            
+            return _buildInfoBadge(label, icon, color, 'This item is $label');
+          }).toList(),
         ),
       ],
     );
@@ -309,41 +312,6 @@ class _MenuDetailPanelState extends State<MenuDetailPanel> {
           ],
         ),
       ),
-    );
-  }
-
-  // Nutritional information
-  Widget _buildNutritionalInfo(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Nutritional Information',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        SizedBox(height: 8.h),
-        Card(
-          child: Padding(
-            padding: EdgeInsets.all(12.w),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.local_fire_department,
-                  color: Colors.orange,
-                  size: 24.sp,
-                ),
-                SizedBox(width: 8.w),
-                Text(
-                  '${widget.item.calories} calories per serving',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 

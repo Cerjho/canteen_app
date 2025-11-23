@@ -169,7 +169,7 @@ class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
         'id': orderId,
         'parent_id': parentId,
         'student_id': studentId,
-        'order_date': date.toIso8601String(),
+        'delivery_date': date.toIso8601String(),
         'status': 'pending_approval',
         'items': items.map((item) => item.toMap()).toList(),
         'total_amount': items.fold<double>(
@@ -182,7 +182,7 @@ class DayOfOrderNotifier extends StateNotifier<List<DayOfOrderItem>> {
     }
 
     // Insert all orders
-    await _supabase.from('day_of_orders').insert(orders);
+    await _supabase.from('orders').insert(orders);
 
     // Clear state after submission
     state = [];

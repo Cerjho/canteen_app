@@ -23,9 +23,9 @@ class ExportUtils {
     // Data rows
     for (var order in orders) {
       rows.add([
-        order.id,
-        FormatUtils.dateTime(order.orderDate),
-        order.studentName,
+        order.orderNumber,
+        FormatUtils.dateTime(order.deliveryDate),
+        order.studentId,
         order.items.map((item) => '${item.menuItemName} x${item.quantity}').join(', '),
         order.totalAmount,
         order.status.displayName,
@@ -53,9 +53,9 @@ class ExportUtils {
     // Data rows
     for (var order in orders) {
       sheet.appendRow([
-        TextCellValue(order.id),
-        TextCellValue(FormatUtils.dateTime(order.orderDate)),
-        TextCellValue(order.studentName),
+        TextCellValue(order.orderNumber),
+        TextCellValue(FormatUtils.dateTime(order.deliveryDate)),
+        TextCellValue(order.studentId),
         TextCellValue(order.items.map((item) => '${item.menuItemName} x${item.quantity}').join(', ')),
         DoubleCellValue(order.totalAmount),
         TextCellValue(order.status.displayName),
@@ -114,9 +114,9 @@ class ExportUtils {
 
     for (var order in orders) {
       rows.add([
-        order.id,
-        FormatUtils.dateTime(order.orderDate),
-        order.studentName,
+        order.orderNumber,
+        FormatUtils.dateTime(order.deliveryDate),
+        order.studentId,
         order.items.length,
         order.totalAmount,
         order.status.displayName,

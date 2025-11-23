@@ -68,6 +68,10 @@ class AppUser {
   /// Whether the account is active (for soft deletion)
   final bool isActive;
 
+  /// Whether the user still needs to complete onboarding
+  /// Parent flow uses this to redirect to /complete-registration
+  final bool needsOnboarding;
+
   AppUser({
     required this.uid,
     required this.firstName,
@@ -78,6 +82,7 @@ class AppUser {
     required this.createdAt,
     this.updatedAt,
     this.isActive = true,
+    this.needsOnboarding = false,
   });
 
   /// Computed full name getter for backward compatibility
@@ -93,13 +98,14 @@ class AppUser {
   /// Maps to snake_case column names in Postgres
   Map<String, dynamic> toMap() {
     return {
-      'id': uid,
+      'uid': uid,
       'first_name': firstName,
       'last_name': lastName,
       'email': email,
       'is_admin': isAdmin,
       'is_parent': isParent,
       'is_active': isActive,
+      'needs_onboarding': needsOnboarding,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -164,6 +170,7 @@ class AppUser {
     final uid = (map['id'] ?? map['uid']) as String;
     final email = map['email'] as String;
     final isActive = (map['is_active'] ?? map['isActive']) as bool? ?? true;
+  final needsOnboarding = (map['needs_onboarding'] ?? map['needsOnboarding']) as bool? ?? false;
     final createdAt = parseDateTime(
       map['created_at'] ?? map['createdAt'],
       DateTime.now(),
@@ -185,6 +192,7 @@ class AppUser {
       updatedAt: map.containsKey('updated_at') || map.containsKey('updatedAt') 
           ? updatedAt 
           : null,
+      needsOnboarding: needsOnboarding,
     );
   }
 
@@ -199,6 +207,7 @@ class AppUser {
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isActive,
+    bool? needsOnboarding,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -210,6 +219,7 @@ class AppUser {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isActive: isActive ?? this.isActive,
+      needsOnboarding: needsOnboarding ?? this.needsOnboarding,
     );
   }
 }

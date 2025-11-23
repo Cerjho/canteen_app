@@ -19,12 +19,9 @@ class MenuItem {
   final String category; // "Snack", "Lunch", "Drinks"
   final String? imageUrl;
   final List<String> allergens;
-  final bool isVegetarian;
-  final bool isVegan;
-  final bool isGlutenFree;
+  final List<String> dietaryLabels; // ["Vegetarian", "Vegan", "Gluten-Free", etc.]
   final bool isAvailable;
-  final int? stockQuantity; // null means unlimited
-  final int? calories; // Nutritional information - calories per serving
+  final int? prepTimeMinutes; // Preparation time in minutes
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -36,15 +33,18 @@ class MenuItem {
     required this.category,
     this.imageUrl,
     this.allergens = const [],
-    this.isVegetarian = false,
-    this.isVegan = false,
-    this.isGlutenFree = false,
+    this.dietaryLabels = const [],
     this.isAvailable = true,
-    this.stockQuantity,
-    this.calories,
+    this.prepTimeMinutes,
     required this.createdAt,
     this.updatedAt,
   });
+
+  /// Helper getters for common dietary labels
+  bool get isVegetarian => dietaryLabels.any((label) => label.toLowerCase() == 'vegetarian');
+  bool get isVegan => dietaryLabels.any((label) => label.toLowerCase() == 'vegan');
+  bool get isGlutenFree => dietaryLabels.any((label) => label.toLowerCase().contains('gluten'));
+
 
   /// Convert to database document
   /// Uses snake_case for Postgres compatibility
@@ -57,12 +57,9 @@ class MenuItem {
       'category': category,
       'image_url': imageUrl,
       'allergens': allergens,
-      'is_vegetarian': isVegetarian,
-      'is_vegan': isVegan,
-      'is_gluten_free': isGlutenFree,
+      'dietary_labels': dietaryLabels, // Database uses dietary_labels array
       'is_available': isAvailable,
-      'stock_quantity': stockQuantity,
-      'calories': calories,
+      'prep_time_minutes': prepTimeMinutes, // Database uses prep_time_minutes
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -71,6 +68,22 @@ class MenuItem {
   /// Create from database document
   /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory MenuItem.fromMap(Map<String, dynamic> map) {
+    // Support legacy boolean fields by converting to dietary_labels
+    List<String> dietaryLabels = List<String>.from(map['dietary_labels'] ?? map['dietaryLabels'] ?? []);
+    
+    // Backward compatibility: if old boolean fields exist, convert them
+    if (dietaryLabels.isEmpty) {
+      if ((map['is_vegetarian'] ?? map['isVegetarian']) == true) {
+        dietaryLabels.add('Vegetarian');
+      }
+      if ((map['is_vegan'] ?? map['isVegan']) == true) {
+        dietaryLabels.add('Vegan');
+      }
+      if ((map['is_gluten_free'] ?? map['isGlutenFree']) == true) {
+        dietaryLabels.add('Gluten-Free');
+      }
+    }
+    
     return MenuItem(
       id: map['id'] as String,
       name: map['name'] as String,
@@ -79,12 +92,9 @@ class MenuItem {
       category: map['category'] as String,
       imageUrl: (map['image_url'] ?? map['imageUrl']) as String?,
       allergens: List<String>.from(map['allergens'] ?? []),
-      isVegetarian: (map['is_vegetarian'] ?? map['isVegetarian']) as bool? ?? false,
-      isVegan: (map['is_vegan'] ?? map['isVegan']) as bool? ?? false,
-      isGlutenFree: (map['is_gluten_free'] ?? map['isGlutenFree']) as bool? ?? false,
+      dietaryLabels: dietaryLabels,
       isAvailable: (map['is_available'] ?? map['isAvailable']) as bool? ?? true,
-      stockQuantity: (map['stock_quantity'] ?? map['stockQuantity']) as int?,
-      calories: map['calories'] as int?,
+      prepTimeMinutes: (map['prep_time_minutes'] ?? map['prepTimeMinutes']) as int?,
       createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
       updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
           ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
@@ -101,12 +111,9 @@ class MenuItem {
     String? category,
     String? imageUrl,
     List<String>? allergens,
-    bool? isVegetarian,
-    bool? isVegan,
-    bool? isGlutenFree,
+    List<String>? dietaryLabels,
     bool? isAvailable,
-    int? stockQuantity,
-    int? calories,
+    int? prepTimeMinutes,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -118,12 +125,9 @@ class MenuItem {
       category: category ?? this.category,
       imageUrl: imageUrl ?? this.imageUrl,
       allergens: allergens ?? this.allergens,
-      isVegetarian: isVegetarian ?? this.isVegetarian,
-      isVegan: isVegan ?? this.isVegan,
-      isGlutenFree: isGlutenFree ?? this.isGlutenFree,
+      dietaryLabels: dietaryLabels ?? this.dietaryLabels,
       isAvailable: isAvailable ?? this.isAvailable,
-      stockQuantity: stockQuantity ?? this.stockQuantity,
-      calories: calories ?? this.calories,
+      prepTimeMinutes: prepTimeMinutes ?? this.prepTimeMinutes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

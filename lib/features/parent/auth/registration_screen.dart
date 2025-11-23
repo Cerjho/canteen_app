@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/utils/app_logger.dart';
 import '../../../core/utils/validation_utils.dart';
 
 class ParentRegistrationScreen extends ConsumerStatefulWidget {
@@ -14,27 +13,16 @@ class ParentRegistrationScreen extends ConsumerStatefulWidget {
 
 class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _firstNameController = TextEditingController();
-  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _phoneController = TextEditingController();
-
   bool _isLoading = false;
   final bool _obscurePassword = true;
-  final bool _obscureConfirmPassword = true;
+  String? _emailError;
 
   @override
   void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    _addressController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -44,37 +32,18 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
     setState(() => _isLoading = true);
 
     try {
-      final registrationService = ref.read(registrationServiceProvider);
+      final supabase = ref.read(supabaseProvider);
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
 
-      AppLogger.info('🔐 Starting parent registration for: ${_emailController.text.trim()}');
-
-      await registrationService.registerParent(
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+      await supabase.auth.signUp(
+        email: email,
+        password: password,
+        emailRedirectTo: 'mycanteen://auth-callback',
       );
 
-      AppLogger.info('✅ Parent registration successful!');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Parent account created successfully!'), backgroundColor: Colors.green, duration: Duration(seconds: 3)),
-        );
-
-        _formKey.currentState!.reset();
-        _firstNameController.clear();
-        _lastNameController.clear();
-        _emailController.clear();
-        _passwordController.clear();
-        _confirmPasswordController.clear();
-        _addressController.clear();
-        _phoneController.clear();
-      }
+      if (mounted) context.go('/registration-info');
     } catch (e) {
-      AppLogger.error('❌ Parent registration failed', error: e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Registration failed: ${e.toString()}'), backgroundColor: Colors.red, duration: const Duration(seconds: 5)),
@@ -107,22 +76,48 @@ class _ParentRegistrationScreenState extends ConsumerState<ParentRegistrationScr
                       const SizedBox(height: 16),
                       Text('Create Parent Account', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                       const SizedBox(height: 24),
-                      TextFormField(controller: _firstNameController, decoration: const InputDecoration(labelText: 'First Name *', prefixIcon: Icon(Icons.person_outline)), validator: (v) => v == null || v.trim().isEmpty ? 'Please enter first name' : null),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _lastNameController, decoration: const InputDecoration(labelText: 'Last Name *', prefixIcon: Icon(Icons.person_outline)), validator: (v) => v == null || v.trim().isEmpty ? 'Please enter last name' : null),
-                      const SizedBox(height: 16),
                       TextFormField(
                         controller: _emailController,
-                        decoration: const InputDecoration(labelText: 'Email Address *', prefixIcon: Icon(Icons.email_outlined)),
+                        decoration: InputDecoration(
+                          labelText: 'Email Address *',
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          errorText: _emailError,
+                        ),
                         keyboardType: TextInputType.emailAddress,
-                        validator: ValidationUtils.email,
+                        validator: (v) {
+                          final base = ValidationUtils.email(v);
+                          if (base != null) return base;
+                          if (_emailError != null) return _emailError;
+                          return null;
+                        },
+                        onChanged: (value) async {
+                          final email = value.trim();
+                          if (ValidationUtils.email(email) != null) {
+                            setState(() => _emailError = null);
+                            return;
+                          }
+                          final exists = await ref.read(registrationServiceProvider).isEmailRegistered(email);
+                          if (!mounted) return;
+                          setState(() => _emailError = exists ? 'Email is already registered' : null);
+                        },
                       ),
                       const SizedBox(height: 16),
-                      TextFormField(controller: _passwordController, decoration: InputDecoration(labelText: 'Password *', prefixIcon: const Icon(Icons.lock_outline), helperText: 'Minimum 6 characters'), obscureText: _obscurePassword, validator: (v) => v == null || v.isEmpty ? 'Please enter password' : v.length < 6 ? 'Password must be at least 6 characters' : null),
-                      const SizedBox(height: 16),
-                      TextFormField(controller: _confirmPasswordController, decoration: InputDecoration(labelText: 'Confirm Password *', prefixIcon: const Icon(Icons.lock_outline)), obscureText: _obscureConfirmPassword, validator: (v) => v == null || v.isEmpty ? 'Please confirm password' : v != _passwordController.text ? 'Passwords do not match' : null),
+                      TextFormField(
+                        controller: _passwordController,
+                        decoration: const InputDecoration(
+                          labelText: 'Password *',
+                          prefixIcon: Icon(Icons.lock_outline),
+                          helperText: 'Minimum 6 characters',
+                        ),
+                        obscureText: _obscurePassword,
+                        validator: (v) => v == null || v.isEmpty
+                            ? 'Please enter password'
+                            : v.length < 6
+                                ? 'Password must be at least 6 characters'
+                                : null,
+                      ),
                       const SizedBox(height: 24),
-                      FilledButton(onPressed: _isLoading ? null : _handleRegistration, child: _isLoading ? const CircularProgressIndicator.adaptive() : const Text('Create Parent Account')),
+                      FilledButton(onPressed: _isLoading ? null : _handleRegistration, child: _isLoading ? const CircularProgressIndicator.adaptive() : const Text('Register')),
                       const SizedBox(height: 16),
                       TextButton(onPressed: _isLoading ? null : () => context.go('/login'), child: const Text('Back to Login')),
                     ],

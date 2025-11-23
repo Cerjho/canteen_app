@@ -2,7 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/order.dart' as app_models;
 import '../interfaces/i_order_service.dart';
 
-/// Order Service - handles all Order-related Firestore operations
+/// Order Service - handles all Order-related Supabase operations
 class OrderService implements IOrderService {
   final SupabaseClient _supabase;
 
@@ -19,7 +19,7 @@ class OrderService implements IOrderService {
     return _supabase
         .from('orders')
         .stream(primaryKey: ['id'])
-        .order('order_date', ascending: false)
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -31,7 +31,7 @@ class OrderService implements IOrderService {
         .from('orders')
         .stream(primaryKey: ['id'])
         .eq('status', status)
-        .order('order_date', ascending: false)
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -48,7 +48,7 @@ class OrderService implements IOrderService {
         .from('orders')
         .stream(primaryKey: ['id'])
         .eq('student_id', studentId)
-        .order('order_date', ascending: false)
+        .order('created_at', ascending: false)
         .map((data) =>
             data.map((item) => app_models.Order.fromMap(item)).toList());
   }
@@ -59,11 +59,11 @@ class OrderService implements IOrderService {
     return _supabase
         .from('orders')
         .stream(primaryKey: ['id'])
-        .gte('order_date', start.toIso8601String())
-        .order('order_date', ascending: false)
+        .gte('delivery_date', start.toIso8601String().split('T')[0])
+        .order('delivery_date', ascending: false)
         .map((data) => data
             .map((item) => app_models.Order.fromMap(item))
-            .where((order) => order.orderDate.isBefore(end) || order.orderDate.isAtSameMomentAs(end))
+            .where((order) => order.deliveryDate.isBefore(end) || order.deliveryDate.isAtSameMomentAs(end))
             .toList());
   }
 
@@ -130,9 +130,13 @@ class OrderService implements IOrderService {
   /// Get orders by parent ID
   @override
   Stream<List<app_models.Order>> getOrdersByParent(String parentId) async* {
-    // TODO: This requires querying orders by students linked to parent
-    // For now, return empty stream
-    yield [];
+    yield* _supabase
+        .from('orders')
+        .stream(primaryKey: ['id'])
+        .eq('parent_id', parentId)
+        .order('created_at', ascending: false)
+        .map((data) =>
+            data.map((item) => app_models.Order.fromMap(item)).toList());
   }
 
   /// Get today's statistics
@@ -152,8 +156,8 @@ class OrderService implements IOrderService {
     final data = await _supabase
         .from('orders')
         .select('id')
-        .gte('order_date', startOfDay.toIso8601String())
-        .lte('order_date', endOfDay.toIso8601String());
+        .gte('delivery_date', startOfDay.toIso8601String())
+        .lte('delivery_date', endOfDay.toIso8601String());
     return (data as List).length;
   }
 
@@ -201,8 +205,8 @@ class OrderService implements IOrderService {
     final data = await _supabase
         .from('orders')
         .select()
-        .gte('order_date', start.toIso8601String())
-        .lte('order_date', end.toIso8601String());
+        .gte('delivery_date', start.toIso8601String())
+        .lte('delivery_date', end.toIso8601String());
 
     final orders = (data as List).map((item) => app_models.Order.fromMap(item)).toList();
 
@@ -229,5 +233,40 @@ class OrderService implements IOrderService {
       // averageOrderValue should be computed over completed orders only
       'averageOrderValue': completedOrders > 0 ? totalRevenue / completedOrders : 0,
     };
+  }
+
+  /// Place order via Postgres RPC to ensure atomicity of order creation and balance deduction
+  @override
+  Future<String> placeOrder({
+    required String parentId,
+    required String studentId,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    required DateTime deliveryDate,
+    String? deliveryTime,
+    String? specialInstructions,
+  }) async {
+    final params = {
+      'p_parent_id': parentId,
+      'p_student_id': studentId,
+      'p_items': items,
+      'p_total': totalAmount,
+      'p_delivery_date': deliveryDate.toIso8601String().split('T')[0],
+      'p_delivery_time': deliveryTime,
+      'p_special_instructions': specialInstructions,
+    };
+
+    final result = await _supabase.rpc('place_order', params: params);
+    if (result is Map<String, dynamic>) {
+      final orderId = result['order_id'] as String?;
+      if (orderId != null && orderId.isNotEmpty) {
+        return orderId;
+      }
+    }
+    // Fallback: if rpc returns raw order id string
+    if (result is String && result.isNotEmpty) {
+      return result;
+    }
+    throw PostgrestException(message: 'Failed to place order');
   }
 }

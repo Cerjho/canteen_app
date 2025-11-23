@@ -132,7 +132,69 @@ class MenuService implements IMenuService {
   /// Delete menu item
   @override
   Future<void> deleteMenuItem(String id) async {
+    // First, remove this item ID from all weekly menus
+    await _removeMenuItemFromWeeklyMenus(id);
+    
+    // Then delete the menu item itself
     await _supabase.from('menu_items').delete().eq('id', id);
+  }
+  
+  /// Remove a menu item ID from all weekly menus (orphan cleanup)
+  /// This prevents "Unknown Item" entries when switching to Weekly Menu tab
+  Future<void> _removeMenuItemFromWeeklyMenus(String itemId) async {
+    try {
+      // Fetch all weekly menus
+      final weeklyMenusData = await _supabase
+          .from('weekly_menus')
+          .select('id, menu_items_by_day');
+      
+      final weeklyMenus = weeklyMenusData as List;
+      
+      for (var menuData in weeklyMenus) {
+        final menuId = menuData['id'] as String;
+        final menuItemsByDay = Map<String, dynamic>.from(
+          menuData['menu_items_by_day'] as Map<String, dynamic>? ?? {}
+        );
+        
+        bool modified = false;
+        
+        // Iterate through each day and meal type
+        for (var dayEntry in menuItemsByDay.entries.toList()) {
+          final day = dayEntry.key;
+          final mealTypesData = Map<String, dynamic>.from(
+            dayEntry.value as Map<String, dynamic>? ?? {}
+          );
+          
+          for (var mealTypeEntry in mealTypesData.entries.toList()) {
+            final mealType = mealTypeEntry.key;
+            final itemIds = List<String>.from(
+              mealTypeEntry.value as List? ?? []
+            );
+            
+            // Remove the deleted item ID if present
+            if (itemIds.contains(itemId)) {
+              itemIds.remove(itemId);
+              mealTypesData[mealType] = itemIds;
+              modified = true;
+            }
+          }
+          
+          menuItemsByDay[day] = mealTypesData;
+        }
+        
+        // Update the weekly menu if modified
+        if (modified) {
+          await _supabase.from('weekly_menus').update({
+            'menu_items_by_day': menuItemsByDay,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', menuId);
+        }
+      }
+    } catch (e) {
+      // Log error but don't throw - deleting the menu item is more important
+      // than cleaning up orphan references
+      print('Warning: Failed to clean up orphan menu item references: $e');
+    }
   }
 
   /// Toggle menu item availability (interface implementation)
@@ -158,31 +220,27 @@ class MenuService implements IMenuService {
     }).eq('id', menuItemId);
   }
 
-  /// Update stock quantity
+  /// Update stock quantity - DEPRECATED: stock_quantity field removed from schema
   @override
   Future<void> updateStockQuantity(String id, int quantity) async {
-    await _supabase.from('menu_items').update({
-      'stock_quantity': quantity,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', id);
+    // No-op: stock_quantity field does not exist in database schema
+    // This method is kept for interface compatibility only
+    throw UnsupportedError('stock_quantity field has been removed from the database schema');
   }
 
-  /// Update stock (legacy method - alias)
+  /// Update stock (legacy method - alias) - DEPRECATED
   Future<void> updateStock(String menuItemId, int quantity) async {
-    await _supabase.from('menu_items').update({
-      'stock_quantity': quantity,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', menuItemId);
+    // No-op: stock_quantity field does not exist in database schema
+    throw UnsupportedError('stock_quantity field has been removed from the database schema');
   }
 
-  /// Delete menu item image from storage and update Firestore
+  /// Delete menu item image from storage and update Supabase
   Future<void> deleteMenuItemImage(String menuItemId) async {
     await _supabase.from('menu_items').update({
       'image_url': null,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', menuItemId);
   }
-
   /// Update menu item image URL
   Future<void> updateMenuItemImage(String menuItemId, String imageUrl) async {
     await _supabase.from('menu_items').update({
@@ -198,30 +256,6 @@ class MenuService implements IMenuService {
     // MenuItem model doesn't have availableDays field - it's managed at weekly menu level
     // Return all available items - filtering by days should be done at WeeklyMenuService level
     return getAvailableMenuItems();
-  }
-
-  /// Get breakfast items
-  @override
-  Stream<List<MenuItem>> getBreakfastItems() {
-    return getMenuItemsByCategory('Breakfast');
-  }
-
-  /// Get lunch items
-  @override
-  Stream<List<MenuItem>> getLunchItems() {
-    return getMenuItemsByCategory('Lunch');
-  }
-
-  /// Get snack items
-  @override
-  Stream<List<MenuItem>> getSnackItems() {
-    return getMenuItemsByCategory('Snacks');
-  }
-
-  /// Get drinks
-  @override
-  Stream<List<MenuItem>> getDrinks() {
-    return getMenuItemsByCategory('Drinks');
   }
 
   /// Search menu items by name
@@ -334,10 +368,13 @@ class MenuService implements IMenuService {
     final priceIdx = headers.indexOf('price');
     final categoryIdx = headers.indexOf('category');
     final allergensIdx = headers.indexOf('allergens');
+    final dietaryLabelsIdx = headers.indexOf('dietarylabels');
+    final prepTimeIdx = headers.indexOf('preptimeminutes');
+    final isAvailableIdx = headers.indexOf('isavailable');
+    // Legacy boolean columns for backward compatibility
     final isVegetarianIdx = headers.indexOf('isvegetarian');
     final isVeganIdx = headers.indexOf('isvegan');
     final isGlutenFreeIdx = headers.indexOf('isglutenfree');
-    final stockQuantityIdx = headers.indexOf('stockquantity');
 
     if (nameIdx == -1 || descriptionIdx == -1 || priceIdx == -1 || categoryIdx == -1) {
       throw Exception(
@@ -397,20 +434,46 @@ class MenuService implements IMenuService {
             ? allergensStr.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList()
             : <String>[];
 
-        final isVegetarian = isVegetarianIdx != -1 && isVegetarianIdx < row.length
-            ? _parseBool(row[isVegetarianIdx].toString())
-            : false;
-        final isVegan = isVeganIdx != -1 && isVeganIdx < row.length
-            ? _parseBool(row[isVeganIdx].toString())
-            : false;
-        final isGlutenFree = isGlutenFreeIdx != -1 && isGlutenFreeIdx < row.length
-            ? _parseBool(row[isGlutenFreeIdx].toString())
-            : false;
+        // Parse dietary labels - prioritize new column format, fallback to legacy booleans
+        List<String> dietaryLabels = [];
+        if (dietaryLabelsIdx != -1 && dietaryLabelsIdx < row.length) {
+          // New format: comma-separated dietary labels
+          final dietaryLabelsStr = row[dietaryLabelsIdx].toString().trim();
+          if (dietaryLabelsStr.isNotEmpty) {
+            dietaryLabels = dietaryLabelsStr
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList();
+          }
+        } else {
+          // Legacy format: build from boolean columns
+          final isVegetarian = isVegetarianIdx != -1 && isVegetarianIdx < row.length
+              ? _parseBool(row[isVegetarianIdx].toString())
+              : false;
+          final isVegan = isVeganIdx != -1 && isVeganIdx < row.length
+              ? _parseBool(row[isVeganIdx].toString())
+              : false;
+          final isGlutenFree = isGlutenFreeIdx != -1 && isGlutenFreeIdx < row.length
+              ? _parseBool(row[isGlutenFreeIdx].toString())
+              : false;
+          
+          if (isVegetarian) dietaryLabels.add('Vegetarian');
+          if (isVegan) dietaryLabels.add('Vegan');
+          if (isGlutenFree) dietaryLabels.add('Gluten-Free');
+        }
 
-        final stockQuantityStr = stockQuantityIdx != -1 && stockQuantityIdx < row.length
-            ? row[stockQuantityIdx].toString().trim()
+        // Parse prep time
+        final prepTimeStr = prepTimeIdx != -1 && prepTimeIdx < row.length
+            ? row[prepTimeIdx].toString().trim()
             : '';
-        final stockQuantity = stockQuantityStr.isNotEmpty ? int.tryParse(stockQuantityStr) : null;
+        final prepTimeMinutes = prepTimeStr.isNotEmpty ? int.tryParse(prepTimeStr) : null;
+
+        // Parse isAvailable - support TRUE/FALSE, Yes/No, 1/0, or default to true
+        bool isAvailable = true;
+        if (isAvailableIdx != -1 && isAvailableIdx < row.length) {
+          isAvailable = _parseBool(row[isAvailableIdx].toString());
+        }
 
         // Create menu item
         final menuItem = MenuItem(
@@ -420,11 +483,9 @@ class MenuService implements IMenuService {
           price: price,
           category: category,
           allergens: allergens,
-          isVegetarian: isVegetarian,
-          isVegan: isVegan,
-          isGlutenFree: isGlutenFree,
-          isAvailable: true,
-          stockQuantity: stockQuantity,
+          dietaryLabels: dietaryLabels,
+          prepTimeMinutes: prepTimeMinutes,
+          isAvailable: isAvailable,
           createdAt: DateTime.now(),
         );
 
@@ -474,11 +535,9 @@ class MenuService implements IMenuService {
         'Price',
         'Category',
         'Allergens',
-        'IsVegetarian',
-        'IsVegan',
-        'IsGlutenFree',
+        'DietaryLabels',
+        'PrepTimeMinutes',
         'IsAvailable',
-        'StockQuantity',
       ],
       // Data rows
       ...menuItems.map((item) => [
@@ -487,11 +546,9 @@ class MenuService implements IMenuService {
             item.price.toStringAsFixed(2),
             item.category,
             item.allergens.join(', '),
-            item.isVegetarian ? 'TRUE' : 'FALSE',
-            item.isVegan ? 'TRUE' : 'FALSE',
-            item.isGlutenFree ? 'TRUE' : 'FALSE',
+            item.dietaryLabels.join(', '),
+            item.prepTimeMinutes?.toString() ?? '',
             item.isAvailable ? 'TRUE' : 'FALSE',
-            item.stockQuantity?.toString() ?? '',
           ]),
     ];
 
@@ -510,11 +567,9 @@ class MenuService implements IMenuService {
       TextCellValue('Price'),
       TextCellValue('Category'),
       TextCellValue('Allergens'),
-      TextCellValue('IsVegetarian'),
-      TextCellValue('IsVegan'),
-      TextCellValue('IsGlutenFree'),
+      TextCellValue('DietaryLabels'),
+      TextCellValue('PrepTimeMinutes'),
       TextCellValue('IsAvailable'),
-      TextCellValue('StockQuantity'),
     ]);
 
     // Data rows
@@ -525,11 +580,9 @@ class MenuService implements IMenuService {
         DoubleCellValue(item.price),
         TextCellValue(item.category),
         TextCellValue(item.allergens.join(', ')),
-        TextCellValue(item.isVegetarian ? 'TRUE' : 'FALSE'),
-        TextCellValue(item.isVegan ? 'TRUE' : 'FALSE'),
-        TextCellValue(item.isGlutenFree ? 'TRUE' : 'FALSE'),
+        TextCellValue(item.dietaryLabels.join(', ')),
+        TextCellValue(item.prepTimeMinutes?.toString() ?? ''),
         TextCellValue(item.isAvailable ? 'TRUE' : 'FALSE'),
-        TextCellValue(item.stockQuantity?.toString() ?? ''),
       ]);
     }
 

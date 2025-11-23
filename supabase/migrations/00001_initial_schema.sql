@@ -46,24 +46,20 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile" ON users
   FOR SELECT USING (auth.uid() = uid);
 
--- Admins can view all users
+-- Admins can view all users (check auth.users metadata to avoid recursion)
 CREATE POLICY "Admins can view all users" ON users
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Users can update their own profile
 CREATE POLICY "Users can update own profile" ON users
   FOR UPDATE USING (auth.uid() = uid);
 
--- Admins can insert/update/delete users
+-- Admins can insert/update/delete users (check auth.users metadata)
 CREATE POLICY "Admins can manage users" ON users
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -93,9 +89,7 @@ CREATE POLICY "Parents can view own profile" ON parents
 -- Admins can view all parents
 CREATE POLICY "Admins can view all parents" ON parents
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Parents can update their own profile (except balance)
@@ -105,9 +99,7 @@ CREATE POLICY "Parents can update own profile" ON parents
 -- Admins can manage parents
 CREATE POLICY "Admins can manage parents" ON parents
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -146,9 +138,7 @@ CREATE POLICY "Parents can view own students" ON students
 -- Admins can view all students
 CREATE POLICY "Admins can view all students" ON students
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Parents can manage their own students
@@ -158,9 +148,7 @@ CREATE POLICY "Parents can manage own students" ON students
 -- Admins can manage all students
 CREATE POLICY "Admins can manage all students" ON students
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -198,9 +186,7 @@ CREATE POLICY "Anyone can view menu items" ON menu_items
 -- Admins can manage menu items
 CREATE POLICY "Admins can manage menu items" ON menu_items
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -232,9 +218,7 @@ CREATE POLICY "Anyone can view weekly menus" ON weekly_menus
 -- Admins can manage weekly menus
 CREATE POLICY "Admins can manage weekly menus" ON weekly_menus
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -278,9 +262,7 @@ CREATE POLICY "Parents can view own orders" ON orders
 -- Admins can view all orders
 CREATE POLICY "Admins can view all orders" ON orders
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Parents can create their own orders
@@ -296,9 +278,7 @@ CREATE POLICY "Parents can cancel own orders" ON orders
 -- Admins can manage all orders
 CREATE POLICY "Admins can manage all orders" ON orders
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -338,25 +318,19 @@ CREATE POLICY "Parents can view own transactions" ON parent_transactions
 -- Admins can view all transactions
 CREATE POLICY "Admins can view all transactions" ON parent_transactions
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Admins can create transactions
 CREATE POLICY "Admins can create transactions" ON parent_transactions
   FOR INSERT WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Admins can update transactions
 CREATE POLICY "Admins can update transactions" ON parent_transactions
   FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -375,7 +349,7 @@ CREATE TABLE IF NOT EXISTS topup_requests (
   status TEXT NOT NULL DEFAULT 'pending',
   notes TEXT,
   admin_notes TEXT,
-  processed_by UUID REFERENCES users(uid),
+  processed_by UUID REFERENCES users(uid) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   processed_at TIMESTAMPTZ
 );
@@ -395,9 +369,7 @@ CREATE POLICY "Parents can view own topups" ON topup_requests
 -- Admins can view all topup requests
 CREATE POLICY "Admins can view all topups" ON topup_requests
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- Parents can create their own topup requests
@@ -407,9 +379,7 @@ CREATE POLICY "Parents can create own topups" ON topup_requests
 -- Admins can manage all topup requests
 CREATE POLICY "Admins can manage all topups" ON topup_requests
   FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -438,9 +408,7 @@ ALTER TABLE weekly_menu_analytics ENABLE ROW LEVEL SECURITY;
 -- Admins can view analytics
 CREATE POLICY "Admins can view analytics" ON weekly_menu_analytics
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE uid = auth.uid() AND is_admin = TRUE
-    )
+    COALESCE((auth.jwt()->>'is_admin')::boolean, false) = true
   );
 
 -- ============================================================================
@@ -455,6 +423,65 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- JWT CLAIMS MANAGEMENT
+-- ============================================================================
+-- This function adds is_admin claim to the JWT token
+-- The claim is read from the users table and added to auth.jwt()
+-- This allows RLS policies to check admin status via auth.jwt()->>'is_admin'
+-- ============================================================================
+
+-- Function to set JWT claims for users
+CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  claims jsonb;
+  user_is_admin boolean;
+BEGIN
+  -- Initialize claims from event
+  claims := event->'claims';
+  
+  -- Safely fetch the is_admin flag from users table
+  -- Use COALESCE to default to false if user doesn't exist yet
+  BEGIN
+    SELECT COALESCE(is_admin, false) INTO user_is_admin
+    FROM public.users
+    WHERE uid = (event->>'user_id')::uuid;
+  EXCEPTION
+    WHEN OTHERS THEN
+      -- If any error occurs, default to false (non-admin)
+      user_is_admin := false;
+  END;
+
+  -- If no user record found, default to false
+  IF user_is_admin IS NULL THEN
+    user_is_admin := false;
+  END IF;
+
+  -- Set the claim in the token
+  claims := jsonb_set(claims, '{is_admin}', to_jsonb(user_is_admin));
+
+  -- Update the event object with new claims
+  event := jsonb_set(event, '{claims}', claims);
+
+  RETURN event;
+EXCEPTION
+  WHEN OTHERS THEN
+    -- If anything fails, return the original event unchanged
+    -- This prevents authentication from breaking
+    RETURN event;
+END;
+$$;
+
+-- Grant execute permission to supabase_auth_admin
+GRANT EXECUTE ON FUNCTION public.custom_access_token_hook TO supabase_auth_admin;
+
+-- Revoke execute permission from authenticated and anon roles for security
+REVOKE EXECUTE ON FUNCTION public.custom_access_token_hook FROM authenticated, anon, public;
 
 -- Triggers for updated_at
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
@@ -477,6 +504,34 @@ CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
 
 CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON parent_transactions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_topup_requests_updated_at BEFORE UPDATE ON topup_requests
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_weekly_menu_analytics_updated_at BEFORE UPDATE ON weekly_menu_analytics
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+-- BALANCE MANAGEMENT FUNCTIONS
+-- ============================================================================
+
+-- Function to automatically update parent balance after transaction completion
+CREATE OR REPLACE FUNCTION update_parent_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE parents
+  SET balance = NEW.balance_after
+  WHERE user_id = NEW.parent_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to sync balance with transactions
+CREATE TRIGGER adjust_parent_balance
+  AFTER INSERT ON parent_transactions
+  FOR EACH ROW
+  WHEN (NEW.status = 'completed')
+  EXECUTE FUNCTION update_parent_balance();
 
 -- ============================================================================
 -- INITIAL DATA

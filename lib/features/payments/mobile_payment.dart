@@ -48,7 +48,7 @@ class _MobilePaymentWidgetState extends State<MobilePaymentWidget> {
         setState(() {
           _status = 'result: $status (session: $session)';
         });
-        // Optionally confirm with backend or refresh Firestore
+        // Optionally confirm with backend or refresh Supabase
       }
     }, onError: (err) {
       // handle errors

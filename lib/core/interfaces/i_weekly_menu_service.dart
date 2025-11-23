@@ -11,28 +11,27 @@ abstract class IWeeklyMenuService {
   /// Get weekly menu by date
   Future<WeeklyMenu?> getWeeklyMenuByDate(DateTime date);
 
-  /// Get all published weekly menus
+  /// Get all published weekly menus (filters by publish_status = 'published')
   Stream<List<WeeklyMenu>> getPublishedWeeklyMenus({int limit});
 
-  /// Publish a new weekly menu
+  /// Publish a weekly menu for a given week
+  /// Sets publish_status to 'published', increments version, and snapshots to versions table
   Future<void> publishWeeklyMenu({
     required DateTime weekStartDate,
     required Map<String, Map<String, List<String>>> menuByDay,
-    String? publishedBy,
-    String? copiedFromWeek,
   });
-
-  /// Unpublish a weekly menu
-  Future<void> unpublishWeeklyMenu(String menuId);
 
   /// Delete a weekly menu
   Future<void> deleteWeeklyMenu(String menuId);
 
-  /// Update weekly menu data
+  /// Update weekly menu data (keeps menu in 'draft' until published)
   Future<void> updateWeeklyMenu(
     String weekStartDate,
     Map<String, Map<String, List<String>>> menuByDay,
   );
+
+  /// Unpublish a weekly menu (set status to 'draft')
+  Future<void> unpublishWeeklyMenu(DateTime weekStartDate);
 
   /// Get menu items for a specific day and meal type
   Future<List<MenuItem>> getMenuItemsForDay(
@@ -66,4 +65,13 @@ abstract class IWeeklyMenuService {
 
   /// Get week date range as string
   String getWeekDateRange(DateTime monday);
+
+  /// List versions for a week's menu (latest first)
+  Future<List<Map<String, dynamic>>> getWeeklyMenuVersions(DateTime weekStartDate);
+
+  /// Revert a week's menu content to a specific version (keeps status as draft)
+  Future<void> revertToVersion(DateTime weekStartDate, int version);
+
+  /// Archive a week's menu (set status to archived)
+  Future<void> archiveWeeklyMenu(DateTime weekStartDate);
 }

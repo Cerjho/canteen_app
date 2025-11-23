@@ -28,10 +28,10 @@ class OrderItem {
 
   factory OrderItem.fromMap(Map<String, dynamic> map) {
     return OrderItem(
-      menuItemId: map['menuItemId'] as String,
-      menuItemName: map['menuItemName'] as String,
-      price: (map['price'] as num).toDouble(),
-      quantity: map['quantity'] as int,
+      menuItemId: (map['menuItemId'] ?? map['menu_item_id']) as String,
+      menuItemName: (map['menuItemName'] ?? map['menu_item_name']) as String,
+      price: (map['price'] as num?)?.toDouble() ?? 0.0,
+      quantity: (map['quantity'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -63,33 +63,55 @@ enum OrderStatus {
   }
 }
 
+/// Order Type
+enum OrderType {
+  oneTime('one-time'),
+  weekly('weekly');
+
+  final String value;
+  const OrderType(this.value);
+
+  static OrderType fromString(String value) {
+    return values.firstWhere(
+      (type) => type.value == value,
+      orElse: () => OrderType.oneTime,
+    );
+  }
+}
+
 /// Order model - represents a food order placed by a student
 @immutable
 class Order {
   final String id;
+  final String orderNumber;
+  final String parentId;
   final String studentId;
-  final String studentName;
-  final String? parentId;
   final List<OrderItem> items;
   final double totalAmount;
   final OrderStatus status;
-  final DateTime orderDate;
+  final OrderType orderType;
+  final DateTime deliveryDate;
+  final String? deliveryTime;
+  final String? specialInstructions;
   final DateTime? completedAt;
-  final String? notes;
+  final DateTime? cancelledAt;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
   const Order({
     required this.id,
+    required this.orderNumber,
+    required this.parentId,
     required this.studentId,
-    required this.studentName,
-    this.parentId,
     required this.items,
     required this.totalAmount,
     required this.status,
-    required this.orderDate,
+    required this.orderType,
+    required this.deliveryDate,
+    this.deliveryTime,
+    this.specialInstructions,
     this.completedAt,
-    this.notes,
+    this.cancelledAt,
     required this.createdAt,
     this.updatedAt,
   });
@@ -99,15 +121,18 @@ class Order {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'student_id': studentId,
-      'student_name': studentName,
+      'order_number': orderNumber,
       'parent_id': parentId,
+      'student_id': studentId,
       'items': items.map((item) => item.toMap()).toList(),
       'total_amount': totalAmount,
       'status': status.name,
-      'order_date': orderDate.toIso8601String(),
+      'order_type': orderType.value,
+      'delivery_date': deliveryDate.toIso8601String().split('T')[0], // DATE format
+      'delivery_time': deliveryTime,
+      'special_instructions': specialInstructions,
       'completed_at': completedAt?.toIso8601String(),
-      'notes': notes,
+      'cancelled_at': cancelledAt?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -116,27 +141,59 @@ class Order {
   /// Create from database document
   /// Supports both snake_case (Postgres) and camelCase (legacy) field names
   factory Order.fromMap(Map<String, dynamic> map) {
+    // Handle missing required fields gracefully
+    final id = map['id'] as String;
+    final orderNumber = (map['order_number'] ?? map['orderNumber'] ?? id) as String;
+    final parentId = (map['parent_id'] ?? map['parentId'] ?? '') as String;
+    final studentId = (map['student_id'] ?? map['studentId'] ?? '') as String;
+    
+    // items may be null or in mixed casing; normalize safely
+    final rawItems = (map['items'] as List?) ?? const [];
+    final parsedItems = rawItems
+        .whereType<Map<String, dynamic>>()
+        .map((item) => OrderItem.fromMap(item))
+        .toList();
+
+    // total amount may be missing/null; compute from items as fallback
+    double totalAmount;
+    final totalRaw = map['total_amount'] ?? map['totalAmount'];
+    if (totalRaw is num) {
+      totalAmount = totalRaw.toDouble();
+    } else {
+      totalAmount = parsedItems.fold<double>(0.0, (sum, it) => sum + it.total);
+    }
+
+    // delivery_date may be String (ISO) or DateTime
+    DateTime parseDate(dynamic v) {
+      if (v is DateTime) return v;
+      if (v is String) return DateTime.parse(v);
+      throw ArgumentError('Invalid date value: $v');
+    }
+
     return Order(
-      id: map['id'] as String,
-      studentId: (map['student_id'] ?? map['studentId']) as String,
-      studentName: (map['student_name'] ?? map['studentName']) as String,
-      parentId: (map['parent_id'] ?? map['parentId']) as String?,
-      items: (map['items'] as List)
-          .map((item) => OrderItem.fromMap(item as Map<String, dynamic>))
-          .toList(),
-      totalAmount: ((map['total_amount'] ?? map['totalAmount']) as num).toDouble(),
+      id: id,
+      orderNumber: orderNumber,
+      parentId: parentId,
+      studentId: studentId,
+      items: parsedItems,
+      totalAmount: totalAmount,
       status: OrderStatus.values.firstWhere(
         (e) => e.name == map['status'],
         orElse: () => OrderStatus.pending,
       ),
-      orderDate: DateTime.parse((map['order_date'] ?? map['orderDate']) as String),
+      orderType: OrderType.fromString((map['order_type'] ?? map['orderType'] ?? 'one-time') as String),
+      deliveryDate: parseDate(map['delivery_date'] ?? map['deliveryDate']),
+      deliveryTime: (map['delivery_time'] ?? map['deliveryTime']) as String?,
+      specialInstructions: (map['special_instructions'] ?? map['specialInstructions']) as String?,
       completedAt: (map['completed_at'] ?? map['completedAt']) != null
-          ? DateTime.parse((map['completed_at'] ?? map['completedAt']) as String)
+          ? parseDate(map['completed_at'] ?? map['completedAt'])
           : null,
-      notes: map['notes'] as String?,
-      createdAt: DateTime.parse((map['created_at'] ?? map['createdAt']) as String),
+      cancelledAt: (map['cancelled_at'] ?? map['cancelledAt']) != null
+          ? parseDate(map['cancelled_at'] ?? map['cancelledAt'])
+          : null,
+      createdAt: parseDate(map['created_at'] ?? map['createdAt']),
       updatedAt: (map['updated_at'] ?? map['updatedAt']) != null
-          ? DateTime.parse((map['updated_at'] ?? map['updatedAt']) as String)
+          ? parseDate(map['updated_at'] ?? map['updatedAt'])
           : null,
     );
   }
@@ -144,29 +201,35 @@ class Order {
   /// Create a copy with modified fields
   Order copyWith({
     String? id,
-    String? studentId,
-    String? studentName,
+    String? orderNumber,
     String? parentId,
+    String? studentId,
     List<OrderItem>? items,
     double? totalAmount,
     OrderStatus? status,
-    DateTime? orderDate,
+    OrderType? orderType,
+    DateTime? deliveryDate,
+    String? deliveryTime,
+    String? specialInstructions,
     DateTime? completedAt,
-    String? notes,
+    DateTime? cancelledAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
     return Order(
       id: id ?? this.id,
-      studentId: studentId ?? this.studentId,
-      studentName: studentName ?? this.studentName,
+      orderNumber: orderNumber ?? this.orderNumber,
       parentId: parentId ?? this.parentId,
+      studentId: studentId ?? this.studentId,
       items: items ?? this.items,
       totalAmount: totalAmount ?? this.totalAmount,
       status: status ?? this.status,
-      orderDate: orderDate ?? this.orderDate,
+      orderType: orderType ?? this.orderType,
+      deliveryDate: deliveryDate ?? this.deliveryDate,
+      deliveryTime: deliveryTime ?? this.deliveryTime,
+      specialInstructions: specialInstructions ?? this.specialInstructions,
       completedAt: completedAt ?? this.completedAt,
-      notes: notes ?? this.notes,
+      cancelledAt: cancelledAt ?? this.cancelledAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

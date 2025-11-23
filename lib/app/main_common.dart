@@ -18,10 +18,6 @@ class AppInitializer {
   /// 
   /// This includes:
   /// - Environment variables (.env)
-  /// - Firebase Core
-  /// - Firestore with offline persistence
-  /// - Firebase Crashlytics
-  /// - Firebase Analytics
   /// - Logger
   static Future<void> initialize() async {
     WidgetsFlutterBinding.ensureInitialized();

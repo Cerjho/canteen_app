@@ -1,14 +1,30 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, ChangeNotifier;
+import 'package:supabase_flutter/supabase_flutter.dart' show User;
 import '../core/providers/app_providers.dart';
 import '../core/models/user_role.dart';
 import '../features/admin/auth/admin_signin_screen.dart';
 import '../features/admin/auth/access_denied_screen.dart';
 import '../features/parent/auth/login_screen.dart';
 import '../features/parent/auth/registration_screen.dart';
+import '../features/parent/auth/registration_info_screen.dart';
 import 'admin_routes.dart';
 import 'parent_routes.dart';
+
+/// Router refresh notifier - only notifies when auth state actually changes
+class RouterRefreshNotifier extends ChangeNotifier {
+  String? _lastUserId;
+  
+  void onAuthStateChange(String? userId) {
+    if (_lastUserId != userId) {
+      _lastUserId = userId;
+      notifyListeners();
+    }
+  }
+}
+
+final _routerRefreshNotifier = RouterRefreshNotifier();
 
 /// Main router provider with unified authentication and role-based routing
 /// 
@@ -27,29 +43,90 @@ import 'parent_routes.dart';
 /// Users are automatically routed to the correct dashboard based on their role.
 /// No need for separate app variants or app config.
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // Start post-auth provisioning side-effect
+  ref.watch(authProvisioningListener);
+  // Listen to auth state but only notify router when user actually changes
+  ref.listen<AsyncValue<User?>>(authStateProvider, (previous, next) {
+    _routerRefreshNotifier.onAuthStateChange(next.value?.id);
+  });
 
   return GoRouter(
     initialLocation: '/login',
+    refreshListenable: _routerRefreshNotifier,
     redirect: (context, state) async {
+      // Handle Android/iOS auth callback deep links
+      try {
+        final uri = state.uri; // GoRouterState exposes the full uri
+        final pathHit = uri.path.contains('/auth-callback') || uri.path.contains('auth-callback');
+        final hostHit = (uri.host).contains('auth-callback');
+        final typeSignup = uri.queryParameters['type'] == 'signup';
+        final errorCode = uri.queryParameters['error_code'];
+        if (pathHit || hostHit || typeSignup) {
+          // If the deep link reports an error (e.g., otp_expired), send to info screen to allow resend
+          if (errorCode != null) {
+            return '/registration-info';
+          }
+          return '/complete-registration';
+        }
+      } catch (_) {
+        // Ignore if state.uri isn't available on older go_router versions
+      }
+
+      final authState = ref.read(authStateProvider);
       final isLoggedIn = authState.value != null;
       final isLoginRoute = state.matchedLocation == '/login';
       final isRegisterRoute = state.matchedLocation == '/register';
+      final isRegistrationInfoRoute = state.matchedLocation == '/registration-info';
+      // Registration completion flow routes (allowed before role exists)
+      final isCompleteRegistrationRoute = state.matchedLocation == '/complete-registration';
+      final isLinkStudentRoute = state.matchedLocation == '/link-student';
+      final isRegistrationSuccessRoute = state.matchedLocation == '/registration-success';
       final isAccessDeniedRoute = state.matchedLocation == '/access-denied';
-      final isAuthRoute = isLoginRoute || isRegisterRoute;
+      // Treat registration-info and registration completion flow as auth routes
+      // so users without roles can access them
+      final isAuthRoute = isLoginRoute ||
+          isRegisterRoute ||
+          isRegistrationInfoRoute ||
+          isCompleteRegistrationRoute ||
+          isLinkStudentRoute ||
+          isRegistrationSuccessRoute;
 
       // Not logged in, redirect to login (except if already on auth routes)
       if (!isLoggedIn && !isAuthRoute) {
         return '/login';
       }
 
-      // Logged in, check role-based access (exclude auth and access denied routes)
+      // Logged in, enforce onboarding and check role-based access (exclude auth/onboarding and access denied routes)
       if (isLoggedIn && !isAuthRoute && !isAccessDeniedRoute) {
-        final userRole = await ref.read(authServiceProvider).getCurrentUserRole();
+        // If user still needs onboarding, force them to complete it
+        final currentUser = ref.read(currentUserProvider).value;
+        if (currentUser?.needsOnboarding == true) {
+          if (kIsWeb) return '/access-denied';
+          return '/complete-registration';
+        }
+        // Use cached userRoleProvider instead of calling getCurrentUserRole repeatedly
+        final userRoleAsync = ref.read(userRoleProvider);
         
-        // If user has no role, deny access
+        // If role check is loading, allow navigation (prevents redirect loops)
+        if (userRoleAsync is AsyncLoading) {
+          return null;
+        }
+        
+        UserRole? userRole;
+        if (userRoleAsync is AsyncData<UserRole?>) {
+          userRole = userRoleAsync.value;
+        } else if (userRoleAsync is AsyncError) {
+          print('Router: Error getting user role: ${userRoleAsync.error}');
+          // Allow navigation on error to prevent loops
+          return null;
+        }
+        
+        // If user has no role, send them to complete-registration flow
         if (userRole == null) {
-          return '/access-denied';
+          print('Router: User role is null, redirecting to complete-registration');
+          // Parents are mobile-only; if on web, deny.
+          if (kIsWeb) return '/access-denied';
+          return '/complete-registration';
         }
         
         // Role-based route protection
@@ -84,24 +161,46 @@ final routerProvider = Provider<GoRouter>((ref) {
         }
       }
 
-      // If logged in and on login page, redirect based on role
-      if (isLoggedIn && isLoginRoute) {
-        final userRole = await ref.read(authServiceProvider).getCurrentUserRole();
+      // If logged in and on login or registration info page, redirect based on role
+      if (isLoggedIn && (isLoginRoute || isRegistrationInfoRoute)) {
+        // If onboarding required, go directly to onboarding
+        final currentUser = ref.read(currentUserProvider).value;
+        if (currentUser?.needsOnboarding == true) {
+          if (kIsWeb) return '/access-denied';
+          return '/complete-registration';
+        }
+        UserRole? userRole;
+        try {
+          userRole = await ref.read(authServiceProvider).getCurrentUserRole();
+        } catch (e) {
+          print('Router: Error getting user role on login redirect: $e');
+          // Stay on login page if there's an error
+          return null;
+        }
         
         // For first-time Google sign-in, role might be null initially
-        // Wait briefly and retry to handle Firestore write latency
+        // Wait briefly and retry to handle Supabase write latency
         if (userRole == null) {
+          print('Router: User role is null on login, retrying...');
           await Future.delayed(const Duration(milliseconds: 500));
-          final retryRole = await ref.read(authServiceProvider).getCurrentUserRole();
-          
-          if (retryRole == UserRole.admin) {
-            return '/dashboard';
-          } else if (retryRole == UserRole.parent) {
-            return '/parent-dashboard';
+          try {
+            final retryRole = await ref.read(authServiceProvider).getCurrentUserRole();
+            
+            if (retryRole == UserRole.admin) {
+              print('Router: Retry found admin role, redirecting to dashboard');
+              return '/dashboard';
+            } else if (retryRole == UserRole.parent) {
+              print('Router: Retry found parent role, redirecting to parent-dashboard');
+              return '/parent-dashboard';
+            }
+          } catch (e) {
+            print('Router: Error on retry: $e');
           }
           
-          // Still no valid role found - deny access
-          return '/access-denied';
+          // Still no valid role found - send to complete registration
+          print('Router: Still no valid role after retry, redirecting to complete-registration');
+          if (kIsWeb) return '/access-denied';
+          return '/complete-registration';
         }
         
         // Route based on role
@@ -110,6 +209,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         } else if (userRole == UserRole.parent) {
           // Parent users cannot access the app on web
           if (kIsWeb) return '/access-denied';
+          // Default to parent dashboard on normal app start
+          // Deep-link flow to complete-registration is handled above when auth-callback is present
           return '/parent-dashboard';
         }
         
@@ -143,6 +244,11 @@ List<RouteBase> _buildRoutes() {
     GoRoute(
       path: '/register',
       builder: (context, state) => const ParentRegistrationScreen(),
+    ),
+    // Registration info can be accessed without being logged in
+    GoRoute(
+      path: '/registration-info',
+      builder: (context, state) => const RegistrationInfoScreen(),
     ),
     GoRoute(
       path: '/access-denied',

@@ -6,6 +6,8 @@ import '../services/user_service.dart';
 import '../services/registration_service.dart';
 import '../models/user_role.dart';
 import 'supabase_providers.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show User;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // ============================================================================
 // AUTHENTICATION & USER SERVICE PROVIDERS
@@ -92,4 +94,54 @@ final isAdminProvider = FutureProvider<bool>((ref) async {
 final isParentProvider = FutureProvider<bool>((ref) async {
   final role = await ref.watch(userRoleProvider.future);
   return role == UserRole.parent;
+});
+
+// ============================================================================
+// POST-AUTH PROVISIONING LISTENER
+// ============================================================================
+/// Ensures that after a successful sign-in (email link or OAuth), the corresponding
+/// rows in `users` and `parents` tables exist. If missing, creates minimal parent
+/// profile so onboarding can proceed.
+///
+/// This addresses the common case where signUp requires email verification, so
+/// DB inserts during registration fail due to RLS until the user confirms and
+/// signs in. On the first real session, we provision the records.
+final authProvisioningListener = Provider<void>((ref) {
+  ref.listen<AsyncValue<User?>>(authStateProvider, (previous, next) async {
+    final supaUser = next.value;
+    if (supaUser == null) return;
+    // Do NOT provision on web for parent flows
+    if (kIsWeb) return;
+
+    try {
+      // If user row already exists, nothing to do
+      final existing = await ref.read(userServiceProvider).getUser(supaUser.id);
+      if (existing != null) return;
+
+      // Derive basic names from metadata or email
+      final email = supaUser.email ?? '';
+      final fullName = (supaUser.userMetadata?['full_name'] ?? supaUser.userMetadata?['name'] ?? email.split('@').first) as String;
+      final parts = fullName.trim().split(RegExp(r"\s+"));
+      final firstName = parts.isNotEmpty ? parts.first : 'Parent';
+      final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+
+      // Create a minimal users row only; parent profile will be created
+      // during the complete-registration flow.
+      final now = DateTime.now();
+      final appUser = AppUser(
+        uid: supaUser.id,
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        isAdmin: false,
+        isParent: true,
+        createdAt: now,
+        isActive: true,
+        needsOnboarding: true,
+      );
+      await ref.read(userServiceProvider).createUser(appUser);
+    } catch (_) {
+      // Best-effort; failures are logged by the underlying services
+    }
+  });
 });

@@ -4,8 +4,6 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        // Add the Google services Gradle plugin
-        classpath("com.google.gms:google-services:4.4.3")
     }
 }
 allprojects {

@@ -19,5 +19,5 @@ void main() {
   } else {
     // Non-web (mobile): run Parent mobile app
     mobile.main();
-  }
+  }  
 }

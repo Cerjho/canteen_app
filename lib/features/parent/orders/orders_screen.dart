@@ -320,7 +320,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
                   Icon(Icons.calendar_today, size: 14.sp, color: Colors.grey),
                   SizedBox(width: 4.w),
                   Text(
-                    dateFormat.format(order.orderDate),
+                    dateFormat.format(order.deliveryDate),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   SizedBox(width: 16.w),
@@ -464,11 +464,11 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen>
                       controller: scrollController,
                       children: [
                         // Order info
-                        _buildDetailRow('Order ID', order.id.substring(0, 12).toUpperCase()),
-                        _buildDetailRow('Student', order.studentName),
+                        _buildDetailRow('Order ID', order.orderNumber),
+                        _buildDetailRow('Student ID', order.studentId.substring(0, 12)), // TODO: Fetch actual student name
                         _buildDetailRow(
-                          'Date',
-                          DateFormat('MMM dd, yyyy').format(order.orderDate),
+                          'Delivery Date',
+                          DateFormat('MMM dd, yyyy').format(order.deliveryDate),
                         ),
                         _buildDetailRow('Status', order.status.displayName),
                         Divider(height: 24.h),

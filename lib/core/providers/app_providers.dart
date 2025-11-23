@@ -29,5 +29,6 @@ export 'analytics_range_provider.dart';
 export 'cart_provider.dart';
 export 'date_refresh_provider.dart';
 export 'day_of_order_provider.dart';
+export '../services/cart_persistence_service.dart';
 
 

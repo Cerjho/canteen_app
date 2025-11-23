@@ -41,7 +41,7 @@ class MenuItemCard extends StatelessWidget {
     final isMobile = screenWidth < 600;
 
     return Semantics(
-  label: '${item.name}, ${FormatUtils.currency(item.price)}, ${item.isAvailable ? 'Available' : 'Unavailable'}. ${item.isVegan ? 'Vegan.' : ''} ${item.isGlutenFree ? 'Gluten-free.' : ''}',
+  label: '${item.name}, ${FormatUtils.currency(item.price)}, ${item.isAvailable ? 'Available' : 'Unavailable'}. ${item.dietaryLabels.isEmpty ? '' : '${item.dietaryLabels.join(', ')}.'}',
       button: true,
       child: GestureDetector(
         onTap: onTap,
@@ -257,12 +257,27 @@ class MenuItemCard extends StatelessWidget {
       spacing: 4,
       runSpacing: 3,
       children: [
-        if (item.isVegetarian) _buildDietaryBadge('Vegetarian', 'Veg', Icons.eco, Colors.green, isMobile),
-        if (item.isVegan) _buildDietaryBadge('Vegan', 'Vegan', Icons.spa, Colors.green, isMobile, darker: true),
-        if (item.isGlutenFree) _buildDietaryBadge('Gluten Free', 'GF', Icons.grain, Colors.amber, isMobile),
+        // Display all dietary labels dynamically
+        ...item.dietaryLabels.map((label) {
+          if (label.toLowerCase() == 'vegetarian') {
+            return _buildDietaryBadge('Vegetarian', 'Veg', Icons.eco, Colors.green, isMobile);
+          } else if (label.toLowerCase() == 'vegan') {
+            return _buildDietaryBadge('Vegan', 'Vegan', Icons.spa, Colors.green, isMobile, darker: true);
+          } else if (label.toLowerCase().contains('gluten')) {
+            return _buildDietaryBadge('Gluten Free', 'GF', Icons.grain, Colors.amber, isMobile);
+          } else if (label.toLowerCase().contains('halal')) {
+            return _buildDietaryBadge('Halal', 'Halal', Icons.mosque, Colors.teal, isMobile);
+          } else if (label.toLowerCase().contains('kosher')) {
+            return _buildDietaryBadge('Kosher', 'Kosher', Icons.star, Colors.blue, isMobile);
+          } else if (label.toLowerCase().contains('dairy-free')) {
+            return _buildDietaryBadge('Dairy-Free', 'DF', Icons.no_meals, Colors.cyan, isMobile);
+          } else if (label.toLowerCase().contains('nut-free')) {
+            return _buildDietaryBadge('Nut-Free', 'NF', Icons.block, Colors.brown, isMobile);
+          } else {
+            return _buildDietaryBadge(label, label.length > 4 ? label.substring(0, 4) : label, Icons.label, Colors.purple, isMobile);
+          }
+        }),
         if (item.allergens.isNotEmpty) _buildAllergenBadge(isMobile),
-        if (item.calories != null) _buildCaloriesBadge(theme, isMobile),
-        if (item.stockQuantity != null) _buildStockBadge(theme, isMobile),
       ],
     );
   }
@@ -314,59 +329,6 @@ class MenuItemCard extends StatelessWidget {
             Icon(Icons.warning_amber, size: isMobile ? 12 : 13, color: Colors.orange[700]),
             const SizedBox(width: 2),
             Text('Allergens', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.orange[700])),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCaloriesBadge(ThemeData theme, bool isMobile) {
-    return Tooltip(
-      message: '${item.calories} calories per serving',
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 4 : 6,
-          vertical: 2,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.blue[50],
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.blue[700]!, width: 1),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.local_fire_department, size: isMobile ? 12 : 13, color: Colors.blue[700]),
-            const SizedBox(width: 2),
-            Text('${item.calories}kcal', style: TextStyle(fontSize: isMobile ? 9 : 10, color: Colors.blue[700])),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStockBadge(ThemeData theme, bool isMobile) {
-    return Tooltip(
-      message: 'Stock: ${item.stockQuantity}',
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 4 : 6,
-          vertical: 2,
-        ),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: theme.colorScheme.primary, width: 1),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.inventory_2, size: isMobile ? 12 : 13, color: theme.colorScheme.primary),
-            const SizedBox(width: 2),
-            Text(
-              '${item.stockQuantity}',
-              style: TextStyle(fontSize: isMobile ? 9 : 10, color: theme.colorScheme.primary),
-            ),
           ],
         ),
       ),

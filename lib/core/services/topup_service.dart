@@ -18,7 +18,7 @@ class TopupService implements ITopupService {
   @override
   Stream<List<Topup>> getTopups() {
     return _supabase
-        .from('topups')
+        .from('topup_requests')
         .stream(primaryKey: ['id'])
         .order('request_date', ascending: false)
         .map((data) =>
@@ -28,7 +28,7 @@ class TopupService implements ITopupService {
   /// Get top-ups by status
   Stream<List<Topup>> getTopupsByStatus(TopupStatus status) {
     return _supabase
-        .from('topups')
+        .from('topup_requests')
         .stream(primaryKey: ['id'])
         .eq('status', status.name)
         .order('request_date', ascending: false)
@@ -58,7 +58,7 @@ class TopupService implements ITopupService {
   @override
   Stream<List<Topup>> getTopupsByParent(String parentId) {
     return _supabase
-        .from('topups')
+        .from('topup_requests')
         .stream(primaryKey: ['id'])
         .eq('parent_id', parentId)
         .order('request_date', ascending: false)
@@ -69,7 +69,7 @@ class TopupService implements ITopupService {
   /// Get top-up by ID
   @override
   Future<Topup?> getTopupById(String id) async {
-    final data = await _supabase.from('topups').select().eq('id', id).maybeSingle();
+    final data = await _supabase.from('topup_requests').select().eq('id', id).maybeSingle();
     if (data != null) {
       return Topup.fromMap(data);
     }
@@ -91,13 +91,13 @@ class TopupService implements ITopupService {
       return;
     }
 
-    await _supabase.from('topups').insert(topup.toMap());
+    await _supabase.from('topup_requests').insert(topup.toMap());
   }
 
   /// Update top-up
   Future<void> updateTopup(Topup topup) async {
     await _supabase
-        .from('topups')
+        .from('topup_requests')
         .update(topup.toMap())
         .eq('id', topup.id);
   }
@@ -105,7 +105,7 @@ class TopupService implements ITopupService {
   /// Approve top-up (interface implementation)
   @override
   Future<void> approveTopup(String topupId, String approvedBy) async {
-    await _supabase.from('topups').update({
+    await _supabase.from('topup_requests').update({
       'status': TopupStatus.approved.name,
       'processed_by': approvedBy,
       'processed_at': DateTime.now().toIso8601String(),
@@ -119,7 +119,7 @@ class TopupService implements ITopupService {
     String adminId, {
     String? adminNotes,
   }) async {
-    await _supabase.from('topups').update({
+    await _supabase.from('topup_requests').update({
       'status': TopupStatus.approved.name,
       'processed_by': adminId,
       'processed_at': DateTime.now().toIso8601String(),
@@ -131,7 +131,7 @@ class TopupService implements ITopupService {
   /// Reject top-up (interface implementation)
   @override
   Future<void> rejectTopup(String topupId, String rejectedBy, String reason) async {
-    await _supabase.from('topups').update({
+    await _supabase.from('topup_requests').update({
       'status': TopupStatus.declined.name,
       'processed_by': rejectedBy,
       'processed_at': DateTime.now().toIso8601String(),
@@ -146,7 +146,7 @@ class TopupService implements ITopupService {
     String adminId, {
     String? adminNotes,
   }) async {
-    await _supabase.from('topups').update({
+    await _supabase.from('topup_requests').update({
       'status': TopupStatus.declined.name,
       'processed_by': adminId,
       'processed_at': DateTime.now().toIso8601String(),
@@ -157,7 +157,7 @@ class TopupService implements ITopupService {
 
   /// Complete top-up (mark as completed after balance update)
   Future<void> completeTopup(String topupId) async {
-    await _supabase.from('topups').update({
+    await _supabase.from('topup_requests').update({
       'status': TopupStatus.completed.name,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', topupId);
@@ -166,7 +166,7 @@ class TopupService implements ITopupService {
   /// Delete a top-up request
   @override
   Future<void> deleteTopup(String id) async {
-    await _supabase.from('topups').delete().eq('id', id);
+    await _supabase.from('topup_requests').delete().eq('id', id);
   }
 
   /// Get today's pending top-ups count
@@ -177,7 +177,7 @@ class TopupService implements ITopupService {
     final endOfDay = DateTime(today.year, today.month, today.day, 23, 59, 59);
     
     final data = await _supabase
-        .from('topups')
+        .from('topup_requests')
         .select('id')
         .eq('status', TopupStatus.pending.name)
         .gte('request_date', startOfDay.toIso8601String())
@@ -190,7 +190,7 @@ class TopupService implements ITopupService {
   @override
   Future<double> getTotalPendingAmount() async {
     final data = await _supabase
-        .from('topups')
+        .from('topup_requests')
         .select()
         .eq('status', TopupStatus.pending.name);
     
@@ -202,7 +202,7 @@ class TopupService implements ITopupService {
   @override
   Stream<List<Topup>> getTopupsByDateRange(DateTime startDate, DateTime endDate) {
     return _supabase
-        .from('topups')
+        .from('topup_requests')
         .stream(primaryKey: ['id'])
         .gte('request_date', startDate.toIso8601String())
         .order('request_date', ascending: false)
@@ -216,7 +216,7 @@ class TopupService implements ITopupService {
   Future<Map<String, dynamic>> getTopupStatistics(
       DateTime start, DateTime end) async {
     final data = await _supabase
-        .from('topups')
+        .from('topup_requests')
         .select()
         .gte('request_date', start.toIso8601String())
         .lte('request_date', end.toIso8601String());

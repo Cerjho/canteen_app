@@ -205,6 +205,7 @@ class RegistrationService {
         isParent: true,
         createdAt: now,
         isActive: true,
+        needsOnboarding: true,
       );
 
       // Step 2: Create parent record with initial balance of 0
@@ -230,6 +231,47 @@ class RegistrationService {
         'user': appUser,
         'parent': parent,
       };
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Ensure a parent profile row exists for the given user id. If it exists, update
+  /// phone/address; if not, insert a new row with defaults.
+  Future<void> upsertParentProfile({
+    required String uid,
+    String? phone,
+    String? address,
+  }) async {
+    try {
+      // Check if parent exists
+      final existing = await _supabase
+          .from(DatabaseConstants.parentsTable)
+          .select('user_id')
+          .eq('user_id', uid)
+          .maybeSingle();
+
+      if (existing == null) {
+        // Insert new parent profile; leave updated_at as NULL
+        await _supabase
+            .from(DatabaseConstants.parentsTable)
+            .insert({
+              'user_id': uid,
+              'phone': phone,
+              'address': address,
+              'created_at': DateTime.now().toIso8601String(),
+            });
+      } else {
+        // Update existing record and set updated_at
+        await _supabase
+            .from(DatabaseConstants.parentsTable)
+            .update({
+              'phone': phone,
+              'address': address,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', uid);
+      }
     } catch (e) {
       rethrow;
     }
@@ -284,21 +326,21 @@ class RegistrationService {
           })
           .eq('id', studentId);
 
-      // Get current parent record to update children array
+      // Get current parent record to update student_ids array
       final parentData = await _supabase
           .from(DatabaseConstants.parentsTable)
-          .select('children')
+          .select('student_ids')
           .eq('user_id', parentUserId)
           .single();
       
-      final currentChildren = List<String>.from(parentData['children'] ?? []);
+      final currentChildren = List<String>.from(parentData['student_ids'] ?? []);
       if (!currentChildren.contains(studentId)) {
         currentChildren.add(studentId);
         
         await _supabase
             .from(DatabaseConstants.parentsTable)
             .update({
-              'children': currentChildren,
+              'student_ids': currentChildren,
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('user_id', parentUserId);
@@ -341,20 +383,20 @@ class RegistrationService {
           })
           .eq('id', studentId);
 
-      // Get current parent record to update children array
-      final parentData = await _supabase
-          .from(DatabaseConstants.parentsTable)
-          .select('children')
-          .eq('user_id', parentUserId)
-          .single();
+    // Get current parent record to update student_ids array
+    final parentData = await _supabase
+      .from(DatabaseConstants.parentsTable)
+      .select('student_ids')
+      .eq('user_id', parentUserId)
+      .single();
       
-      final currentChildren = List<String>.from(parentData['children'] ?? []);
+    final currentChildren = List<String>.from(parentData['student_ids'] ?? []);
       currentChildren.remove(studentId);
       
       await _supabase
           .from(DatabaseConstants.parentsTable)
           .update({
-            'children': currentChildren,
+      'student_ids': currentChildren,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('user_id', parentUserId);
@@ -465,7 +507,7 @@ class RegistrationService {
       // Check users table
       final data = await _supabase
           .from(DatabaseConstants.usersTable)
-          .select('id')
+          .select('uid')
           .eq('email', email)
           .maybeSingle();
 

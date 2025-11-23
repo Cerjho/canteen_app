@@ -7,9 +7,9 @@ import 'package:uuid/uuid.dart';
 import '../models/student.dart';
 import '../interfaces/i_student_service.dart';
 
-/// Student Service - handles all Student-related Firestore operations
-/// 
-/// This service implements [IStudentService] and provides Firestore-backed
+/// Student Service - handles all Student-related Supabase operations
+///
+/// This service implements [IStudentService] and provides Supabase-backed
 /// student management operations. Dependencies are injected via constructor
 /// for better testability.
 class StudentService implements IStudentService {
@@ -43,7 +43,7 @@ class StudentService implements IStudentService {
     return _supabase
         .from('students')
         .stream(primaryKey: ['id'])
-        .eq('parent_id', parentId)
+        .eq('parent_user_id', parentId) // Use correct database field name
         .order('last_name')
         .map((data) =>
             data.map((item) => Student.fromMap(item)).toList());
@@ -99,7 +99,7 @@ class StudentService implements IStudentService {
         .select()
         .eq('first_name', firstName)
         .eq('last_name', lastName)
-        .eq('grade', grade)
+        .eq('grade_level', grade)
         .limit(1);
     
     if ((data as List).isNotEmpty) {
@@ -136,7 +136,7 @@ class StudentService implements IStudentService {
   /// Assign student to parent
   Future<void> assignToParent(String studentId, String parentId) async {
     await _supabase.from('students').update({
-      'parent_id': parentId,
+      'parent_user_id': parentId, // Use correct database field name
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', studentId);
   }
@@ -161,10 +161,34 @@ class StudentService implements IStudentService {
     return _supabase
         .from('students')
         .stream(primaryKey: ['id'])
-        .eq('grade', grade)
+        .eq('grade_level', grade)
         .order('last_name')
         .map((data) =>
             data.map((item) => Student.fromMap(item)).toList());
+  }
+
+  /// Find a student by their unique code
+  @override
+  Future<Student?> getStudentByCode(String code) async {
+    final data = await _supabase
+        .from('students')
+        .select()
+        .eq('code', code)
+        .maybeSingle();
+    if (data == null) return null;
+    return Student.fromMap(data);
+  }
+
+  /// Update student's parent link
+  @override
+  Future<void> updateParentId(String studentId, String parentUserId) async {
+    await _supabase
+        .from('students')
+        .update({
+          'parent_user_id': parentUserId,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', studentId);
   }
 
   /// Check if student ID exists
@@ -319,7 +343,7 @@ class StudentService implements IStudentService {
     final Set<String> existingStudents = (existingData as List).map((item) {
       final firstName = (item['first_name'] as String? ?? '').toLowerCase().trim();
       final lastName = (item['last_name'] as String? ?? '').toLowerCase().trim();
-      final grade = (item['grade'] as String? ?? '').toLowerCase().trim();
+      final grade = (item['grade_level'] as String? ?? '').toLowerCase().trim();
       return '$firstName|$lastName|$grade'; // Composite key
     }).toSet();
 
@@ -330,10 +354,10 @@ class StudentService implements IStudentService {
       try {
         final studentData = data[i];
         
-        // Validate required fields
-        final firstName = studentData['firstname'] ?? studentData['first name'] ?? '';
-        final lastName = studentData['lastname'] ?? studentData['last name'] ?? '';
-        final grade = studentData['grade'] ?? '';
+        // Validate required fields - support both formats
+        final firstName = studentData['firstname'] ?? studentData['first name'] ?? studentData['first_name'] ?? '';
+        final lastName = studentData['lastname'] ?? studentData['last name'] ?? studentData['last_name'] ?? '';
+        final grade = studentData['grade'] ?? studentData['gradelevel'] ?? studentData['grade_level'] ?? '';
 
         if (firstName.isEmpty || lastName.isEmpty || grade.isEmpty) {
           failedItems.add({
@@ -353,20 +377,47 @@ class StudentService implements IStudentService {
         // Generate unique ID
         final studentId = _uuid.v4();
 
-        final student = Student(
-          id: studentId,
-          firstName: firstName,
-          lastName: lastName,
-          grade: grade,
-          parentId: studentData['parentid'] ?? studentData['parent id'],
-          allergies: studentData['allergies'],
-          dietaryRestrictions: studentData['dietaryrestrictions'] ?? 
-                              studentData['dietary restrictions'],
-          isActive: true,
-          createdAt: DateTime.now(),
-        );
+        // Ignore ParentId during import to avoid FK violations.
+        // Linking is handled later in the parent feature.
+  // String? parentId intentionally unused; we skip linking during import
+        
+        // Parse allergies and dietary restrictions
+        final allergies = studentData['allergies'];
+        final dietaryRestrictions = studentData['dietaryrestrictions'] ?? 
+                                    studentData['dietary restrictions'] ?? 
+                                    studentData['dietary_restrictions'];
+        
+        // Parse active status - support TRUE/FALSE, Yes/No, 1/0
+        final activeStr = (studentData['active'] ?? studentData['isactive'] ?? studentData['is_active'] ?? 'TRUE').toString().toLowerCase();
+        final isActive = activeStr == 'true' || activeStr == 'yes' || activeStr == '1';
 
-        studentsToInsert.add(student.toMap());
+        // Build insert map explicitly to avoid sending UUID columns with empty strings
+        final nowIso = DateTime.now().toIso8601String();
+        final Map<String, dynamic> insertMap = {
+          'id': studentId,
+          'first_name': firstName,
+          'last_name': lastName,
+          'grade_level': grade,
+          // Exclude parent_user_id during import; linking happens later
+          if (allergies != null && allergies.toString().trim().isNotEmpty)
+            'allergies': allergies
+                .toString()
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList(),
+          if (dietaryRestrictions != null && dietaryRestrictions.toString().trim().isNotEmpty)
+            'dietary_restrictions': dietaryRestrictions
+                .toString()
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList(),
+          'is_active': isActive,
+          'created_at': nowIso,
+        };
+
+        studentsToInsert.add(insertMap);
         successCount++;
         existingStudents.add(studentKey); // Prevent duplicates within same import
 
@@ -399,31 +450,27 @@ class StudentService implements IStudentService {
   Future<String> exportStudentsToCsv(List<Student> students) async {
     List<List<dynamic>> rows = [];
     
-    // Headers (student balance removed)
+    // Headers - match import format (lowercase, no spaces)
     rows.add([
-      'ID',
-      'First Name',
-      'Last Name',
+      'FirstName',
+      'LastName',
       'Grade',
-      'Parent ID',
+      'ParentId',
       'Allergies',
-      'Dietary Restrictions',
+      'DietaryRestrictions',
       'Active',
-      'Created At',
     ]);
 
     // Data rows
     for (var student in students) {
       rows.add([
-        student.id,
         student.firstName,
         student.lastName,
         student.grade,
         student.parentId ?? '',
         student.allergies ?? '',
         student.dietaryRestrictions ?? '',
-        student.isActive ? 'Yes' : 'No',
-        student.createdAt.toIso8601String(),
+        student.isActive ? 'TRUE' : 'FALSE',
       ]);
     }
 
@@ -435,31 +482,27 @@ class StudentService implements IStudentService {
     final excel = Excel.createExcel();
     final sheet = excel['Students'];
 
-    // Headers (student balance removed)
+    // Headers - match import format
     sheet.appendRow([
-      TextCellValue('ID'),
-      TextCellValue('First Name'),
-      TextCellValue('Last Name'),
+      TextCellValue('FirstName'),
+      TextCellValue('LastName'),
       TextCellValue('Grade'),
-      TextCellValue('Parent ID'),
+      TextCellValue('ParentId'),
       TextCellValue('Allergies'),
-      TextCellValue('Dietary Restrictions'),
+      TextCellValue('DietaryRestrictions'),
       TextCellValue('Active'),
-      TextCellValue('Created At'),
     ]);
 
     // Data rows
     for (var student in students) {
       sheet.appendRow([
-        TextCellValue(student.id),
         TextCellValue(student.firstName),
         TextCellValue(student.lastName),
         TextCellValue(student.grade),
         TextCellValue(student.parentId ?? ''),
         TextCellValue(student.allergies ?? ''),
         TextCellValue(student.dietaryRestrictions ?? ''),
-        TextCellValue(student.isActive ? 'Yes' : 'No'),
-        TextCellValue(student.createdAt.toIso8601String()),
+        TextCellValue(student.isActive ? 'TRUE' : 'FALSE'),
       ]);
     }
 

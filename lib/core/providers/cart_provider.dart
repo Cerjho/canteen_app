@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/cart_item.dart';
 import '../models/menu_item.dart';
+import 'auth_providers.dart';
+import 'supabase_providers.dart';
+import '../services/cart_persistence_service.dart';
 
 /// Cart State Notifier - Manages shopping cart state
 /// 
@@ -12,11 +15,51 @@ import '../models/menu_item.dart';
 /// - Clear entire cart
 /// - Calculate totals
 class CartNotifier extends StateNotifier<List<CartItem>> {
-  CartNotifier() : super([]);
+  final Ref ref;
+  CartNotifier(this.ref) : super([]) {
+    _loadFromDb();
+  }
+
+  Future<void> _loadFromDb() async {
+    try {
+      final uid = ref.read(currentUserProvider).value?.uid;
+      if (uid == null) return;
+      final service = CartPersistenceService(supabase: ref.read(supabaseProvider));
+      // Prefer normalized carts; fallback to saved_carts JSON
+      var items = await service.fetchDailyCartFromTables(uid);
+      if (items.isEmpty) {
+        items = await service.fetchDailyCart(uid);
+      }
+      if (items.isNotEmpty) state = items;
+    } catch (_) {
+      // Ignore load errors to avoid blocking UI
+    }
+  }
+
+  Future<void> _persist() async {
+    try {
+      final uid = ref.read(currentUserProvider).value?.uid;
+      if (uid == null) return;
+      final service = CartPersistenceService(supabase: ref.read(supabaseProvider));
+      await service.saveDailyCart(uid, state);
+      await service.saveDailyCartToTables(uid, state);
+    } catch (_) {}
+  }
 
   /// Add an item to the cart or increase quantity if it already exists
-  void addItem(MenuItem menuItem, {int quantity = 1, String? studentId, String? studentName}) {
-    final existingIndex = state.indexWhere((item) => item.menuItemId == menuItem.id && item.studentId == studentId);
+  void addItem(
+    MenuItem menuItem, {
+    int quantity = 1,
+    String? studentId,
+    String? studentName,
+    String? deliveryTime, // '09:00', '12:00', '14:00'
+    String? specialInstructions,
+  }) {
+    final existingIndex = state.indexWhere((item) =>
+        item.menuItemId == menuItem.id &&
+        item.studentId == studentId &&
+        item.deliveryTime == deliveryTime &&
+        (item.specialInstructions ?? '') == (specialInstructions ?? ''));
     
     if (existingIndex >= 0) {
       // Item already in cart for this student - increase quantity
@@ -27,7 +70,8 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
       
       final newState = [...state];
       newState[existingIndex] = updatedItem;
-      state = newState;
+  state = newState;
+  _persist();
     } else {
       // New item - add to cart
       final cartItem = CartItem(
@@ -41,9 +85,12 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
         addedAt: DateTime.now(),
         studentId: studentId,
         studentName: studentName,
+        deliveryTime: deliveryTime,
+        specialInstructions: specialInstructions,
       );
       
       state = [...state, cartItem];
+      _persist();
     }
   }
 
@@ -60,6 +107,7 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
       final newState = [...state];
       newState[index] = updatedItem;
       state = newState;
+      _persist();
     }
   }
 
@@ -82,11 +130,19 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
   /// Remove a specific item from the cart
   void removeItem(String cartItemId) {
     state = state.where((item) => item.id != cartItemId).toList();
+    _persist();
+  }
+
+  /// Remove all items for a given student
+  void removeItemsForStudent(String studentId) {
+    state = state.where((item) => item.studentId != studentId).toList();
+    _persist();
   }
 
   /// Clear all items from the cart
   void clear() {
     state = [];
+    _persist();
   }
 
   /// Get total price of all items
@@ -107,7 +163,7 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
 
 /// Main cart provider
 final cartProvider = StateNotifierProvider<CartNotifier, List<CartItem>>((ref) {
-  return CartNotifier();
+  return CartNotifier(ref);
 });
 
 /// Derived provider for cart total

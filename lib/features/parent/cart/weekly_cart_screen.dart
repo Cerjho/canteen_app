@@ -39,317 +39,43 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
       if (mounted) setState(() {});
     });
   }
-  void _showEditQuantityDialog(WeeklyCartItem item, void Function(int) onQuantityChanged) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        int tempQuantity = item.quantity;
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text('Edit Quantity'),
-              content: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.remove),
-                    onPressed: () {
-                      if (tempQuantity > 1) {
-                        setState(() {
-                          tempQuantity--;
-                        });
-                      }
-                    },
-                  ),
-                  Text('$tempQuantity', style: TextStyle(fontSize: 18)),
-                  IconButton(
-                    icon: Icon(Icons.add),
-                    onPressed: () {
-                      setState(() {
-                        tempQuantity++;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  child: Text('Cancel'),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                ElevatedButton(
-                  child: Text('Save'),
-                  onPressed: () {
-                    onQuantityChanged(tempQuantity);
-                    Navigator.pop(context);
-                  },
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
+  // (Removed edit quantity dialog; weekly edit is simplified to keep modal compact)
   void _showOrderConfirmationModal(WeeklySummary summary, Map<String, Map<String, dynamic>> grouped, double parentBalance) {
+    final total = summary.totalCost;
+    final remaining = parentBalance - total;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        final theme = Theme.of(context);
-        final grandTotal = summary.totalCost;
-        final remainingBalance = parentBalance - grandTotal;
-        return Scaffold(
-          backgroundColor: Colors.black.withAlpha((0.2 * 255).round()),
-          body: SafeArea(
-            child: Container(
-              color: Colors.white,
-              width: double.infinity,
-              height: double.infinity,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 16.w),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Confirm Weekly Order', style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
-                        IconButton(
-                          icon: Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.symmetric(horizontal: 16.w),
-                      children: [
-                        ...grouped.entries.map((studentEntry) {
-                          final studentName = studentEntry.value['studentName'] as String;
-                          final days = studentEntry.value['days'] as Map<DateTime, Map<String, dynamic>>;
-                          final studentTotal = days.values.expand((d) => d['meals'].values.expand((m) {
-                            if (m['items'] != null) {
-                              return m['items'] as List<WeeklyCartItem>;
-                            } else if (m['times'] != null) {
-                              return (m['times'] as Map<String, List<WeeklyCartItem>>).values.expand((t) => t);
-                            }
-                            return <WeeklyCartItem>[];
-                          })).fold(0.0, (sum, item) => sum + item.menuItem.price * item.quantity);
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('👧 $studentName', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.sp)),
-                              ...days.entries.map((dayEntry) {
-                                final day = dayEntry.key;
-                                final meals = dayEntry.value['meals'] as Map<String, Map<String, dynamic>>;
-                                return Padding(
-                                  padding: EdgeInsets.only(left: 8.w, bottom: 8.h),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('- ${DateFormat.EEEE().format(day)}', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15.sp)),
-                                      ...meals.entries.map((mealEntry) {
-                                        final mealType = mealEntry.key;
-                                        final mealData = mealEntry.value;
-                                        // Color and icon for meal type
-                                        Color badgeColor;
-                                        IconData badgeIcon;
-                                        String badgeText;
-                                        switch (mealType) {
-                                          case 'breakfast':
-                                            badgeColor = Colors.yellow.shade700;
-                                            badgeIcon = Icons.free_breakfast;
-                                            badgeText = 'Breakfast';
-                                            break;
-                                          case 'lunch':
-                                            badgeColor = Colors.green.shade400;
-                                            badgeIcon = Icons.lunch_dining;
-                                            badgeText = 'Lunch';
-                                            break;
-                                          case 'snack':
-                                            badgeColor = Colors.blue.shade400;
-                                            badgeIcon = Icons.cookie;
-                                            badgeText = 'Snack';
-                                            break;
-                                          default:
-                                            badgeColor = Colors.grey;
-                                            badgeIcon = Icons.fastfood;
-                                            badgeText = mealType;
-                                        }
-                                        if (mealType == 'snack') {
-                                          final times = mealData['times'] as Map<String, List<WeeklyCartItem>>;
-                                          return Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Container(
-                                                    decoration: BoxDecoration(
-                                                      color: badgeColor,
-                                                      borderRadius: BorderRadius.circular(12),
-                                                    ),
-                                                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(badgeIcon, size: 16, color: Colors.white),
-                                                        SizedBox(width: 4),
-                                                        Text(badgeText, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              ...times.entries.map((timeEntry) {
-                                                final time = timeEntry.key;
-                                                final items = timeEntry.value;
-                                                return Padding(
-                                                  padding: EdgeInsets.only(left: 16.w),
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text('      - $time:', style: TextStyle(fontWeight: FontWeight.w400, fontSize: 13.sp)),
-                                                      ...items.map((item) => Padding(
-                                                        padding: EdgeInsets.only(left: 12.w, bottom: 4.h),
-                                                        child: Row(
-                                                          children: [
-                                                            Text(item.menuItem.name, style: TextStyle(fontSize: 13.sp)),
-                                                            SizedBox(width: 8),
-                                                            Text('×${item.quantity}', style: TextStyle(fontSize: 13.sp)),
-                                                            SizedBox(width: 8),
-                                                            Text(FormatUtils.currency(item.menuItem.price), style: TextStyle(fontSize: 13.sp, color: Colors.grey)),
-                                                            SizedBox(width: 8),
-                                                            IconButton(
-                                                              icon: Icon(Icons.edit, size: 16),
-                                                              tooltip: 'Edit quantity',
-                                                              onPressed: () {
-                                                                _showEditQuantityDialog(item, (newQty) {
-                                                                  // Persist via provider
-                                                                  ref.read(weeklyCartProvider.notifier).updateQuantityForDate(item.id, item.date, newQty);
-                                                                });
-                                                              },
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      )),
-                                                    ],
-                                                  ),
-                                                );
-                                              }),
-                                            ],
-                                          );
-                                        } else {
-                                          final items = mealData['items'] as List<WeeklyCartItem>;
-                                          return Padding(
-                                            padding: EdgeInsets.only(left: 12.w, bottom: 4.h),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    Container(
-                                                      decoration: BoxDecoration(
-                                                        color: badgeColor,
-                                                        borderRadius: BorderRadius.circular(12),
-                                                      ),
-                                                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(badgeIcon, size: 16, color: Colors.white),
-                                                          SizedBox(width: 4),
-                                                          Text(badgeText, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                ...items.map((item) => Padding(
-                                                  padding: EdgeInsets.only(left: 12.w, bottom: 2.h),
-                                                  child: Row(
-                                                    children: [
-                                                      Text(item.menuItem.name, style: TextStyle(fontSize: 13.sp)),
-                                                      SizedBox(width: 8),
-                                                      Text('×${item.quantity}', style: TextStyle(fontSize: 13.sp)),
-                                                      SizedBox(width: 8),
-                                                      Text(FormatUtils.currency(item.menuItem.price), style: TextStyle(fontSize: 13.sp, color: Colors.grey)),
-                                                      SizedBox(width: 8),
-                                                      IconButton(
-                                                        icon: Icon(Icons.edit, size: 16),
-                                                        tooltip: 'Edit quantity',
-                                                        onPressed: () {
-                                                          _showEditQuantityDialog(item, (newQty) {
-                                                            // Persist via provider
-                                                            ref.read(weeklyCartProvider.notifier).updateQuantityForDate(item.id, item.date, newQty);
-                                                          });
-                                                        },
-                                                      ),
-                                                    ],
-                                                  ),
-                                                )),
-                                              ],
-                                            ),
-                                          );
-                                        }
-                                      }),
-                                    ],
-                                  ),
-                                );
-                              }),
-                              Padding(
-                                padding: EdgeInsets.only(left: 8.w, top: 2.h, bottom: 12.h),
-                                child: Text('Subtotal: ${FormatUtils.currency(studentTotal)}', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.sp, color: theme.colorScheme.primary)),
-                              ),
-                            ],
-                          );
-                        }),
-                        Divider(height: 32.h),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Grand Total:', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold)),
-                            Text(FormatUtils.currency(grandTotal), style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
-                          ],
-                        ),
-                        SizedBox(height: 8.h),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Wallet Balance After:', style: TextStyle(fontSize: 14.sp)),
-                            Text(FormatUtils.currency(remainingBalance), style: TextStyle(fontSize: 14.sp, color: remainingBalance < 0 ? Colors.red : Colors.green)),
-                          ],
-                        ),
-                        SizedBox(height: 16.h),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            OutlinedButton.icon(
-                              icon: Icon(Icons.edit),
-                              label: Text('Edit Order'),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            ElevatedButton.icon(
-                              icon: Icon(Icons.check_circle),
-                              label: Text('Confirm & Submit'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.colorScheme.primary,
-                                foregroundColor: Colors.white,
-                                padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
-                              ),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                _submitWeeklyOrder();
-                              },
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 16.h),
-                      ],
-                    ),
-                  ),
-                ],
+        return AlertDialog(
+          title: const Text('Confirm Weekly Order'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Days: ${summary.daysWithOrders}'),
+              Text('Items: ${summary.totalItems}'),
+              SizedBox(height: 8.h),
+              Text('Total: ${FormatUtils.currency(total)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                'Wallet after: ${FormatUtils.currency(remaining)}',
+                style: TextStyle(color: remaining < 0 ? Colors.red : Colors.green),
               ),
-            ),
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _submitWeeklyOrder();
+              },
+              child: const Text('Confirm & Submit'),
+            ),
+          ],
         );
       },
     );
@@ -411,14 +137,14 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
     final parentBalance = parent?.balance ?? 0.0;
     final requiredTotal = summary.totalCost;
     if (parentBalance < requiredTotal) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Warning: Parent wallet (${FormatUtils.currency(parentBalance)}) is less than the weekly total (${FormatUtils.currency(requiredTotal)}). Order will be placed but balance will not be deducted until server reconciliation.'),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 6),
+          content: Text('Insufficient wallet: ${FormatUtils.currency(parentBalance)} < required ${FormatUtils.currency(requiredTotal)}. Please top up and try again.'),
+          backgroundColor: Colors.red,
         ),
       );
+      return;
     }
 
     // Show dialog while processing
@@ -431,65 +157,75 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
     try {
       final createdOrderIds = <String>[];
       final allItems = ref.read(weeklyCartProvider).values.expand((x) => x).toList();
-      final itemsByCategory = <String, List<Map<String, dynamic>>>{};
-      for (final item in allItems) {
-        final category = item.menuItem.category;
-        itemsByCategory.putIfAbsent(category, () => []);
-        itemsByCategory[category]!.add({
-          'menuItemId': item.menuItem.id,
-          'menuItemName': item.menuItem.name,
-          'mealType': item.mealType,
-          'time': item.time,
-          'price': item.menuItem.price,
-          'quantity': item.quantity,
-        });
+      final grouped = _groupCartByStudentDayMeal(allItems);
+
+      final orderService = ref.read(orderServiceProvider);
+
+      // Iterate per student and per day; create one order per day/student
+      for (final entry in grouped.entries) {
+        final studentId = entry.key;
+        final days = entry.value['days'] as Map<DateTime, Map<String, dynamic>>;
+
+        for (final dayEntry in days.entries) {
+          final day = dayEntry.key;
+          final meals = dayEntry.value['meals'] as Map<String, Map<String, dynamic>>;
+
+          // Flatten items for this day
+          final items = <Map<String, dynamic>>[];
+          double dayTotal = 0.0;
+          for (final mealEntry in meals.entries) {
+            final mealType = mealEntry.key;
+            final data = mealEntry.value;
+            if (mealType == 'snack') {
+              final times = data['times'] as Map<String, List<WeeklyCartItem>>;
+              for (final t in times.values) {
+                for (final it in t) {
+                  items.add({
+                    'menuItemId': it.menuItem.id,
+                    'menuItemName': it.menuItem.name,
+                    'price': it.menuItem.price,
+                    'quantity': it.quantity,
+                  });
+                  dayTotal += it.menuItem.price * it.quantity;
+                }
+              }
+            } else {
+              final list = data['items'] as List<WeeklyCartItem>;
+              for (final it in list) {
+                items.add({
+                  'menuItemId': it.menuItem.id,
+                  'menuItemName': it.menuItem.name,
+                  'price': it.menuItem.price,
+                  'quantity': it.quantity,
+                });
+                dayTotal += it.menuItem.price * it.quantity;
+              }
+            }
+          }
+
+          if (items.isEmpty) continue;
+
+          // Place the order atomically (this deducts balance per order)
+          final newOrderId = await orderService.placeOrder(
+            parentId: currentUserId,
+            studentId: studentId,
+            items: items,
+            totalAmount: dayTotal,
+            deliveryDate: DateTime(day.year, day.month, day.day),
+          );
+          createdOrderIds.add(newOrderId);
+        }
       }
-      final sortedCategories = itemsByCategory.keys.toList()..sort();
-      final sortedItemsByCategory = <String, List<Map<String, dynamic>>>{};
-      for (final category in sortedCategories) {
-        final items = itemsByCategory[category]!;
-        items.sort((a, b) => (a['menuItemName'] as String).compareTo(b['menuItemName'] as String));
-        sortedItemsByCategory[category] = items;
-      }
-      
-      // Use Supabase to insert order
-      final parentService = ref.read(parentServiceProvider);
-      
-      // Generate order ID
-      final orderId = DateTime.now().millisecondsSinceEpoch.toString();
-      
-      final orderData = {
-        'id': orderId,
-        'parent_id': currentUserId,
-        'items_by_category': sortedItemsByCategory,
-        'total_amount': summary.totalCost,
-        'status': 'pending',
-        'balance_deducted': false,
-        'order_date': DateTime.now().toIso8601String(),
-        'created_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      
-      // Insert order using Supabase
-      await ref.read(supabaseProvider).from('orders').insert(orderData);
-      createdOrderIds.add(orderId);
-      
-      // Record transaction
-      try {
-        final parentId = ref.read(currentUserProvider).value?.uid;
-        await parentService.recordTransaction(
-          parentId: parentId!,
-          amount: requiredTotal,
-          balanceBefore: parentBalance,
-          balanceAfter: parentBalance,
-          orderIds: createdOrderIds,
-          reason: 'weekly_order_deferred',
-        );
-      } catch (_) {}
-  // Capture navigator before awaiting to avoid using BuildContext across async gaps
+
+  // Refresh UI streams
+      ref.invalidate(parentOrdersProvider);
+      ref.invalidate(parentTransactionsStreamProvider(currentUserId));
+  ref.invalidate(currentParentProvider);
+
+      // Capture navigator before awaiting to avoid using BuildContext across async gaps
   final navigator = Navigator.of(context);
   if (!mounted) return;
-  navigator.pop(); // Close loading dialog
+      navigator.pop(); // Close loading dialog
       // Show custom success screen
       showDialog(
         context: context,
@@ -506,10 +242,9 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
                 children: [
                   Icon(Icons.check_circle, color: Colors.green, size: 48.sp),
                   SizedBox(height: 16.h),
-                  Text('Order successfully submitted!', style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
+                  Text('Orders successfully submitted!', style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12.h),
-                  Text('Order ID:', style: TextStyle(fontSize: 13.sp, color: Colors.grey)),
-                  Text(orderId, style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.w600)),
+                  Text('Created ${createdOrderIds.length} order(s).', style: TextStyle(fontSize: 15.sp)),
                   SizedBox(height: 12.h),
                   Text('Estimated ready by lunch', style: TextStyle(fontSize: 15.sp)),
                   SizedBox(height: 18.h),
@@ -517,7 +252,7 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
                     icon: Icon(Icons.share),
                     label: Text('Share Receipt'),
                     onPressed: () {
-                      final summaryText = 'Order ID: $orderId\nTotal: ${FormatUtils.currency(summary.totalCost)}\nETA: Ready by lunch';
+                      final summaryText = 'Orders: ${createdOrderIds.join(', ')}\nTotal: ${FormatUtils.currency(summary.totalCost)}\nETA: Ready by lunch';
                       // TODO: Implement PDF or share intent
                       // For now, just copy to clipboard
                       Clipboard.setData(ClipboardData(text: summaryText));
@@ -645,11 +380,6 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
                   icon: Icons.calendar_month,
                   label: '${summary.daysWithOrders} days',
                 ),
-                if (summary.totalCalories != null)
-                  _buildStatChip(
-                    icon: Icons.local_fire_department,
-                    label: '${summary.totalCalories!.toStringAsFixed(0)} cal',
-                  ),
               ],
             ),
             // Category breakdown
@@ -827,8 +557,9 @@ class _WeeklyCartScreenState extends ConsumerState<WeeklyCartScreen> {
   Widget _buildBottomActionBar(WeeklySummary summary) {
     final allItems = ref.watch(weeklyCartProvider).values.expand((x) => x).toList();
     final grouped = _groupCartByStudentDayMeal(allItems);
-    final parent = ref.watch(currentParentProvider).value;
-    final parentBalance = parent?.balance ?? 0.0;
+    final parentBalance = ref.watch(
+      currentParentProvider.select((a) => a.value?.balance ?? 0.0),
+    );
     return Container(
       padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(

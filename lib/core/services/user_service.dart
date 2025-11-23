@@ -43,17 +43,15 @@ class UserService implements IUserService {
       final data = await _supabase
           .from(DatabaseConstants.usersTable)
           .select()
-          .eq('id', userId)
+          .eq('uid', userId)
           .maybeSingle();
-      
+
       if (data == null) return null;
       return AppUser.fromMap(data);
     } catch (e) {
       rethrow;
     }
-  }
-
-  /// Get user stream (real-time updates)
+  }  /// Get user stream (real-time updates)
   /// 
   /// Parameters:
   /// - userId: The Supabase Auth UUID
@@ -63,12 +61,28 @@ class UserService implements IUserService {
   Stream<AppUser?> getUserStream(String userId) {
     return _supabase
         .from(DatabaseConstants.usersTable)
-        .stream(primaryKey: ['id'])
-        .eq('id', userId)
+        .stream(primaryKey: ['uid'])
+        .eq('uid', userId)
         .map((rows) {
           if (rows.isEmpty) return null;
           return AppUser.fromMap(rows.first);
         });
+  }
+
+  /// Send password reset email to a user's email address
+  ///
+  /// Admin-triggered helper: this uses the standard reset flow and does not
+  /// require service role. Supabase will send the reset link to [email].
+  /// Optionally provide a [redirectTo] URL to override the project default.
+  Future<void> sendPasswordResetEmail(String email, {String? redirectTo}) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(
+        email,
+        redirectTo: redirectTo,
+      );
+    } catch (e) {
+      rethrow;
+    }
   }
 
   /// Create or update user document
@@ -101,7 +115,7 @@ class UserService implements IUserService {
     await _supabase
         .from(DatabaseConstants.usersTable)
         .update(user.toMap())
-        .eq('id', user.uid);
+    .eq('uid', user.uid);
   }
 
   /// Delete user (interface implementation)
@@ -110,7 +124,7 @@ class UserService implements IUserService {
     await _supabase
         .from(DatabaseConstants.usersTable)
         .delete()
-        .eq('id', uid);
+    .eq('uid', uid);
   }
 
   /// Check if user exists (interface implementation)
@@ -118,8 +132,8 @@ class UserService implements IUserService {
   Future<bool> userExists(String uid) async {
     final data = await _supabase
         .from(DatabaseConstants.usersTable)
-        .select('id')
-        .eq('id', uid)
+        .select('uid')
+        .eq('uid', uid)
         .maybeSingle();
     return data != null;
   }
@@ -217,7 +231,7 @@ class UserService implements IUserService {
             'is_parent': asParent,
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .eq('id', userId);
+          .eq('uid', userId);
     } catch (e) {
       rethrow;
     }
@@ -239,7 +253,7 @@ class UserService implements IUserService {
             'is_active': false,
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .eq('id', userId);
+          .eq('uid', userId);
     } catch (e) {
       rethrow;
     }
@@ -260,7 +274,7 @@ class UserService implements IUserService {
             'is_active': true,
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .eq('id', userId);
+          .eq('uid', userId);
     } catch (e) {
       rethrow;
     }
@@ -279,31 +293,31 @@ class UserService implements IUserService {
     bool includeInactive = false,
   }) {
     final roleField = role == UserRole.admin ? 'is_admin' : 'is_parent';
-    
+
     var query = _supabase
         .from(DatabaseConstants.usersTable)
-        .stream(primaryKey: ['id'])
+        .stream(primaryKey: ['uid'])
         .eq(roleField, true);
 
     return query.map((rows) {
       var users = rows.map((row) => AppUser.fromMap(row)).toList();
-      
+
       // Filter inactive users if needed
       if (!includeInactive) {
         users = users.where((user) => user.isActive).toList();
       }
-      
+
       return users;
     });
   }
 
   /// Get all active users
-  /// 
+  ///
   /// Returns: Stream of all active AppUser objects
   Stream<List<AppUser>> getAllActiveUsers() {
     return _supabase
         .from(DatabaseConstants.usersTable)
-        .stream(primaryKey: ['id'])
+        .stream(primaryKey: ['uid'])
         .eq('is_active', true)
         .map((rows) => rows.map((row) => AppUser.fromMap(row)).toList());
   }
@@ -313,7 +327,7 @@ class UserService implements IUserService {
   Stream<List<AppUser>> getAllUsers() {
     return _supabase
         .from(DatabaseConstants.usersTable)
-        .stream(primaryKey: ['id'])
+        .stream(primaryKey: ['uid'])
         .map((rows) => rows.map((row) => AppUser.fromMap(row)).toList());
   }
 
@@ -322,7 +336,7 @@ class UserService implements IUserService {
   Stream<List<AppUser>> searchUsersByEmail(String query) {
     return _supabase
         .from(DatabaseConstants.usersTable)
-        .stream(primaryKey: ['id'])
+        .stream(primaryKey: ['uid'])
         .map((rows) {
           final users = rows.map((row) => AppUser.fromMap(row)).toList();
           // Client-side filtering for case-insensitive search

@@ -5,7 +5,6 @@ import '../../../core/models/menu_item.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/interfaces/i_weekly_menu_service.dart';
 import '../../../shared/components/loading_indicator.dart';
-import '../../../core/providers/date_refresh_provider.dart';
 
 /// Weekly Menu History Screen - Browse and manage past published menus
 class WeeklyMenuHistoryScreen extends ConsumerStatefulWidget {
@@ -17,10 +16,14 @@ class WeeklyMenuHistoryScreen extends ConsumerStatefulWidget {
 
 class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScreen> {
   int _limit = 10;
+  String _statusFilter = 'all'; // all | draft | published | archived
 
   @override
   Widget build(BuildContext context) {
     final weeklyMenuService = ref.watch(weeklyMenuServiceProvider);
+    
+    // Watch dateRefreshProvider to ensure rebuild when date changes
+    ref.watch(dateRefreshProvider);
     
     return Scaffold(
       appBar: AppBar(
@@ -68,7 +71,11 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
             );
           }
 
-          final menus = snapshot.data ?? [];
+          var menus = snapshot.data ?? [];
+          // Apply status filter client-side
+          if (_statusFilter != 'all') {
+            menus = menus.where((m) => m.publishStatus == _statusFilter).toList();
+          }
 
           if (menus.isEmpty) {
             return Center(
@@ -118,7 +125,38 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                 ),
               ),
 
-              // Menu List
+              // Status Filters
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('All'),
+                      selected: _statusFilter == 'all',
+                      onSelected: (_) => setState(() => _statusFilter = 'all'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Draft'),
+                      selected: _statusFilter == PublishStatus.draft,
+                      onSelected: (_) => setState(() => _statusFilter = PublishStatus.draft),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Published'),
+                      selected: _statusFilter == PublishStatus.published,
+                      onSelected: (_) => setState(() => _statusFilter = PublishStatus.published),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Archived'),
+                      selected: _statusFilter == PublishStatus.archived,
+                      onSelected: (_) => setState(() => _statusFilter = PublishStatus.archived),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Filters + Menu List
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -163,16 +201,21 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
     IWeeklyMenuService weeklyMenuService,
   ) {
     final theme = Theme.of(context);
-    final weekDate = DateTime.parse(menu.weekStartDate);
+    final weekDate = menu.weekStart;
     final weekRange = weeklyMenuService.getWeekDateRange(weekDate);
     final isCurrentWeek = _isCurrentWeek(weekDate);
     
-    // Count total items
+    // Count total items and days with at least one item
     int totalItems = 0;
-    for (var dayMenu in menu.menuByDay.values) {
+    int daysWithItems = 0;
+    for (var dayMenu in menu.menuItemsByDay.values) {
+      int dayCount = 0;
       for (var mealTypeItems in dayMenu.values) {
-        totalItems += mealTypeItems.length;
+        final len = mealTypeItems.length;
+        totalItems += len;
+        dayCount += len;
       }
+      if (dayCount > 0) daysWithItems++;
     }
 
     return Card(
@@ -217,6 +260,31 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
+                // Status chip
+                Chip(
+                  label: Text(menu.publishStatus.substring(0, 1).toUpperCase() + menu.publishStatus.substring(1)),
+                  backgroundColor: menu.publishStatus == PublishStatus.published
+                      ? Colors.green.withValues(alpha: 0.1)
+                      : (menu.publishStatus == PublishStatus.archived
+                          ? theme.colorScheme.outlineVariant.withValues(alpha: 0.2)
+                          : theme.colorScheme.tertiaryContainer.withValues(alpha: 0.2)),
+                  side: BorderSide(
+                    color: menu.publishStatus == PublishStatus.published
+                        ? Colors.green
+                        : (menu.publishStatus == PublishStatus.archived
+                            ? theme.colorScheme.outline
+                            : theme.colorScheme.tertiary),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 8),
+                // Version chip when > 0
+                if (menu.currentVersion > 0)
+                  Chip(
+                    label: Text('v${menu.currentVersion}'),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 if (isCurrentWeek) ...[
                   const SizedBox(width: 8),
                   Chip(
@@ -246,6 +314,16 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                         ],
                       ),
                     ),
+                    const PopupMenuItem(
+                      value: 'versions',
+                      child: Row(
+                        children: [
+                          Icon(Icons.history),
+                          SizedBox(width: 12),
+                          Text('Versions'),
+                        ],
+                      ),
+                    ),
                     if (!isCurrentWeek)
                       const PopupMenuItem(
                         value: 'copy',
@@ -254,6 +332,17 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                             Icon(Icons.content_copy),
                             SizedBox(width: 12),
                             Text('Copy to This Week'),
+                          ],
+                        ),
+                      ),
+                    if (menu.publishStatus != PublishStatus.archived)
+                      const PopupMenuItem(
+                        value: 'archive',
+                        child: Row(
+                          children: [
+                            Icon(Icons.inventory_2_outlined),
+                            SizedBox(width: 12),
+                            Text('Archive'),
                           ],
                         ),
                       ),
@@ -277,7 +366,7 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                 Expanded(
                   child: _buildInfoChip(
                     icon: Icons.calendar_view_week,
-                    label: '${menu.menuByDay.length} Days',
+                    label: '$daysWithItems Day${daysWithItems == 1 ? '' : 's'}',
                     theme: theme,
                   ),
                 ),
@@ -285,37 +374,15 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
             ),
             const SizedBox(height: 8),
             
-            // Published info
+            // Menu info
             Text(
-              menu.publishedAt != null 
-                  ? 'Published ${_formatDateTime(menu.publishedAt!)}'
-                  : 'Draft (Not Published)',
+              menu.publishStatus == PublishStatus.published
+                  ? 'Published menu'
+                  : (menu.publishStatus == PublishStatus.archived ? 'Archived menu' : 'Draft menu'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            
-            // Copied from info
-            if (menu.copiedFromWeek != null) ...[
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(
-                    Icons.content_copy,
-                    size: 14,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Copied from ${_formatWeekDate(menu.copiedFromWeek!)}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            ],
           ],
         ),
       ),
@@ -360,9 +427,113 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
       case 'view':
         await _showMenuDetails(context, menu);
         break;
+      case 'versions':
+        await _showVersionsDialog(context, menu, weeklyMenuService);
+        break;
       case 'copy':
         await _copyToCurrentWeek(context, menu, weeklyMenuService);
         break;
+      case 'archive':
+        await _archiveMenu(context, menu, weeklyMenuService);
+        break;
+    }
+  }
+
+  Future<void> _showVersionsDialog(
+    BuildContext context,
+    WeeklyMenu menu,
+    IWeeklyMenuService weeklyMenuService,
+  ) async {
+    final versions = await weeklyMenuService.getWeeklyMenuVersions(menu.weekStart);
+    await showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
+          child: Column(
+            children: [
+              ListTile(
+                title: const Text('Versions'),
+                subtitle: Text('Week of ${_formatWeekDate(menu.weekStart)}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: versions.isEmpty
+                    ? const Center(child: Text('No versions yet'))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemBuilder: (context, index) {
+                          final v = versions[index];
+                          final version = v['version'] as int;
+                          final createdAt = DateTime.tryParse(v['created_at']?.toString() ?? '');
+                          // created_by could be displayed if you add a user lookup
+                          return ListTile(
+                            leading: CircleAvatar(child: Text('v$version')),
+                            title: Text('Version $version'),
+                            subtitle: Text(createdAt != null ? createdAt.toLocal().toString() : ''),
+                            trailing: OutlinedButton(
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Revert to this version?'),
+                                    content: Text('This will replace the current draft with contents of v$version. You can publish after reviewing changes.'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Revert')),
+                                    ],
+                                  ),
+                                );
+                                if (confirm != true) return;
+                                await weeklyMenuService.revertToVersion(menu.weekStart, version);
+                                if (context.mounted) {
+                                  Navigator.pop(context); // close versions dialog
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Reverted. Menu is now Draft'), backgroundColor: Colors.orange),
+                                  );
+                                }
+                              },
+                              child: const Text('Revert'),
+                            ),
+                          );
+                        },
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemCount: versions.length,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _archiveMenu(
+    BuildContext context,
+    WeeklyMenu menu,
+    IWeeklyMenuService weeklyMenuService,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Archive Menu'),
+        content: Text('Archive menu for week of ${_formatWeekDate(menu.weekStart)}? You can unarchive later by editing and publishing again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Archive')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await weeklyMenuService.archiveWeeklyMenu(menu.weekStart);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Archived'), backgroundColor: Colors.grey),
+      );
     }
   }
 
@@ -394,7 +565,7 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Week of ${_formatWeekDate(menu.weekStartDate)}',
+                        'Week of ${_formatWeekDate(menu.weekStart)}',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: Theme.of(context).colorScheme.onPrimaryContainer,
                           fontWeight: FontWeight.bold,
@@ -414,16 +585,51 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
                 child: menuItemsAsync.when(
                   data: (menuItems) {
                     final itemMap = {for (var item in menuItems) item.id: item};
-                    
+
+                    // Enforce stable weekday order and hide completely empty days
+                    const orderedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+                    List<Widget> dayCards = [];
+                    for (final day in orderedDays) {
+                      final mealTypes = menu.menuItemsByDay[day] ?? const <String, List<String>>{};
+
+                      // Compute total items for the day across meals
+                      final totalForDay = ['breakfast', 'lunch', 'snack', 'drinks']
+                          .map((k) => mealTypes[k]?.length ?? 0)
+                          .fold<int>(0, (a, b) => a + b);
+
+                      if (totalForDay == 0) {
+                        // Skip empty days to reduce noise in history view
+                        continue;
+                      }
+
+                      dayCards.add(
+                        _buildDayDetails(
+                          day,
+                          mealTypes,
+                          itemMap,
+                        ),
+                      );
+                    }
+
+                    // If all days were empty, still show an informational card
+                    if (dayCards.isEmpty) {
+                      dayCards.add(
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Text(
+                              'No items scheduled for this week',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
                     return ListView(
                       padding: const EdgeInsets.all(20),
-                      children: menu.menuByDay.entries.map((dayEntry) {
-                        return _buildDayDetails(
-                          dayEntry.key,
-                          dayEntry.value,
-                          itemMap,
-                        );
-                      }).toList(),
+                      children: dayCards,
                     );
                   },
                   loading: () => const Center(child: CircularProgressIndicator()),
@@ -442,7 +648,17 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
     Map<String, List<String>> mealTypes,
     Map<String, MenuItem> itemMap,
   ) {
-    if (mealTypes.isEmpty) return const SizedBox.shrink();
+    // Order meals and hide empty meal sections
+    const mealOrder = ['breakfast', 'lunch', 'snack', 'drinks'];
+    final orderedMeals = mealOrder
+        .map((k) => MapEntry(k, List<String>.from(mealTypes[k] ?? const <String>[])))
+        .where((e) => e.value.isNotEmpty)
+        .toList();
+
+    if (orderedMeals.isEmpty) return const SizedBox.shrink();
+
+    // Count items for header chip
+    final totalForDay = orderedMeals.fold<int>(0, (a, e) => a + e.value.length);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -451,15 +667,34 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              day,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    day,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text('$totalForDay item${totalForDay == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      )),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            ...mealTypes.entries.map((mealTypeEntry) {
+            ...orderedMeals.map((mealTypeEntry) {
               final mealType = mealTypeEntry.key;
               final itemIds = mealTypeEntry.value;
               
@@ -506,7 +741,7 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
       builder: (context) => AlertDialog(
         title: const Text('Copy to Current Week'),
         content: Text(
-          'Copy this menu from ${_formatWeekDate(menu.weekStartDate)} to the current week?\n\n'
+          'Copy this menu from ${_formatWeekDate(menu.weekStart)} to the current week?\n\n'
           'This will replace any existing menu for the current week.',
         ),
         actions: [
@@ -528,8 +763,7 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
       final currentWeek = ref.read(dateRefreshProvider);
       await weeklyMenuService.publishWeeklyMenu(
         weekStartDate: currentWeek,
-        menuByDay: menu.menuByDay,
-        copiedFromWeek: menu.weekStartDate,
+        menuByDay: menu.menuItemsByDay,
       );
 
       if (context.mounted) {
@@ -564,34 +798,12 @@ class _WeeklyMenuHistoryScreenState extends ConsumerState<WeeklyMenuHistoryScree
     return compareDate.isAtSameMomentAs(currentWeekDate);
   }
 
-  String _formatWeekDate(String weekStartDate) {
-    final date = DateTime.parse(weekStartDate);
+  String _formatWeekDate(DateTime weekStartDate) {
+    final date = weekStartDate;
     final months = [
       '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
     return '${months[date.month]} ${date.day}, ${date.year}';
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    final now = ref.watch(dateRefreshProvider);
-    final difference = now.difference(dateTime);
-
-    if (difference.inDays == 0) {
-      return 'today at ${_formatTime(dateTime)}';
-    } else if (difference.inDays == 1) {
-      return 'yesterday at ${_formatTime(dateTime)}';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return 'on ${_formatWeekDate(dateTime.toIso8601String().substring(0, 10))}';
-    }
-  }
-
-  String _formatTime(DateTime dateTime) {
-    final hour = dateTime.hour > 12 ? dateTime.hour - 12 : dateTime.hour;
-    final period = dateTime.hour >= 12 ? 'PM' : 'AM';
-    final minute = dateTime.minute.toString().padLeft(2, '0');
-    return '$hour:$minute $period';
   }
 }
