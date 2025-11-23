@@ -5,6 +5,7 @@
 This Flutter project implements a **scalable multi-app architecture** supporting an Admin Web Dashboard and Parent Mobile App, with 100% shared core business logic via Riverpod dependency injection and Supabase backend.
 
 **Key Architecture Benefits:**
+
 - Single codebase with two independent apps (Admin & Parent)
 - Shared models, services, and business logic in lib/core/
 - Feature-based organization for maintainability
@@ -14,7 +15,6 @@ This Flutter project implements a **scalable multi-app architecture** supporting
 
 ## 🗂️ Project Structure
 
-```
 lib/
 │
 ├── core/                         # 🔷 Shared code (100% reusable)
@@ -72,7 +72,6 @@ lib/
 │   └── theme/                    # Theme (delegated to core)
 │
 └── main.dart                     # Platform dispatcher
-```
 
 ## 🎯 Design Principles
 
@@ -97,6 +96,7 @@ features/admin/orders/
 └── models/                      # Feature-specific models (if any)
 
 Benefits:
+
 - Features can be worked on independently
 - Easy to locate and modify feature code
 - Clear separation of concerns
@@ -292,15 +292,15 @@ class Order {
 ### Admin Feature Example
 
 1. **Create directory:**
-   ```
+
    lib/features/admin/inventory/
    ├── inventory_screen.dart
    └── widgets/
        ├── inventory_table.dart
        └── add_item_dialog.dart
-   ```
 
 2. **Create screen:**
+
    ```dart
    class InventoryScreen extends ConsumerWidget {
      @override
@@ -316,6 +316,7 @@ class Order {
    ```
 
 3. **Add routes:**
+
    ```dart
    // lib/router/admin_routes.dart
    GoRoute(
@@ -325,6 +326,7 @@ class Order {
    ```
 
 4. **Add navigation:**
+
    ```dart
    // lib/features/admin/widgets/admin_scaffold.dart
    ListTile(
@@ -336,12 +338,11 @@ class Order {
 ### Parent Feature Example
 
 1. **Create directory:**
-   ```
+
    lib/features/parent/favorites/
    ├── favorites_screen.dart
    └── widgets/
        └── favorite_item_card.dart
-   ```
 
 2. **Create screen and routes similarly**
 
@@ -382,6 +383,7 @@ import '../../../router/router.dart';
 ### Authorization
 
 Frontend:
+
 ```dart
 // Router redirect based on role
 redirect: (context, state) {
@@ -391,6 +393,7 @@ redirect: (context, state) {
 ```
 
 Backend (RLS policies):
+
 ```sql
 -- Only admins can update menu_items
 CREATE POLICY "admin_update_items"
@@ -532,6 +535,7 @@ await _supabase
 **Decision**: Use Supabase PostgreSQL
 
 **Rationale**:
+
 - SQL for complex queries
 - Row-Level Security at database
 - Cost-effective for scale
@@ -543,6 +547,7 @@ await _supabase
 **Decision**: Use flutter_riverpod throughout
 
 **Rationale**:
+
 - No BuildContext required
 - Automatic dependency management
 - Easy provider overrides
@@ -554,6 +559,7 @@ await _supabase
 **Decision**: Organize by feature, not by layer
 
 **Rationale**:
+
 - Easier to scale (add features)
 - Feature-specific widgets stay together
 - Clear feature boundaries
