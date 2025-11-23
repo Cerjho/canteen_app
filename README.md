@@ -13,7 +13,15 @@ A modern Flutter project with two separate apps sharing core logic:
 - **Student Management**: CRUD operations, assign students to parents
 - **Parent Management**: View/edit parent profiles, manage balances
 - **Menu Management**: Add/edit menu items with images, prices, allergens
-- **Orders Management**: Filter and manage orders by student/date/status
+- **Orders Management**: 
+  - View all orders in paginated data table
+  - Filter by status (pending, confirmed, preparing, ready, completed, cancelled)
+  - Filter by date range with date picker
+  - Search orders by order number or student ID
+  - Quick actions: View details, update status, cancel order
+  - Real-time order status updates with visual status chips
+  - View order breakdown: items, quantities, unit prices, totals
+  - View student and parent information linked to order
 - **Top-up Management**: Approve/decline balance top-up requests
 - **Reports**: Export orders and revenue to CSV/Excel
 - **Settings**: App configuration and preferences
@@ -209,10 +217,26 @@ Example:
 
 #### orders
 
-- id, studentId, studentName, parentId
-- items[], totalAmount, status
-- orderDate, completedAt, notes
+- id, orderNumber, parentId, studentId
+- items[], totalAmount, status, orderType
+- deliveryDate, deliveryTime
+- specialInstructions, notes
+- completedAt, cancelledAt
 - createdAt, updatedAt
+
+**Order Status Workflow:**
+- `pending` - Order created, awaiting confirmation (orange)
+- `confirmed` - Order confirmed by admin (blue)
+- `preparing` - Kitchen is preparing the order (purple)
+- `ready` - Order ready for pickup/delivery (teal)
+- `completed` - Order delivered or picked up (green)
+- `cancelled` - Order cancelled by admin or parent (red)
+
+**Order Type:**
+- `oneTime` - Single order for a specific date
+- `weekly` - Recurring weekly order
+
+**Integration Note:** Orders are charged to the linked parent's wallet, not individual student balances. Parents must top up their wallet to place orders for linked students.
 
 #### topups
 

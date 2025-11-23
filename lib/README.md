@@ -23,6 +23,8 @@ lib/
 │   │   ├── dashboard/            # Main dashboard with statistics
 │   │   ├── menu/                 # Manage menu items and weekly menus
 │   │   ├── orders/               # Order management
+│   │   │   ├── orders_screen.dart            # Paginated orders list with filters
+│   │   │   └── order_details_screen.dart     # Order detail view with status updates
 │   │   ├── parents/              # Parent management
 │   │   ├── reports/              # Analytics & reports
 │   │   ├── settings/             # App settings & data seeding
@@ -81,6 +83,120 @@ Each app can run independently:
 - Single source of truth for navigation
 - Role-based access control
 - Platform-specific route loading
+
+## 📋 Admin Features Detail
+
+### Orders Management System
+
+The admin portal provides a comprehensive orders management interface with data table, filtering, and status tracking capabilities.
+
+#### OrdersScreen (`features/admin/orders/orders_screen.dart`)
+
+**Purpose:** Display all orders in a paginated data table with comprehensive filtering and search capabilities.
+
+**Key Features:**
+- **Data Table:** Columns for Order #, Student, Parent, Items, Amount, Status, Delivery Date, Actions
+- **Filtering:**
+  - Status filter dropdown (all, pending, confirmed, preparing, ready, completed, cancelled)
+  - Date range picker for filtering by delivery date
+  - Search box for order number or student ID lookup
+  - Clear filters button to reset all filters
+- **Pagination:** 10 rows per page with navigation controls
+- **Status Chips:** Color-coded visual indicators (orange=pending, blue=confirmed, purple=preparing, teal=ready, green=completed, red=cancelled)
+- **Actions Menu:** View Details, Update Status (conditional), Cancel Order
+- **Lazy Loading:** Parent names resolved asynchronously via `_ParentNameCell` ConsumerWidget to prevent UI blocking
+
+**Data Flow:**
+```
+ordersProvider (StreamProvider)
+  ↓
+_filterOrders() [applied client-side]
+  ↓
+DataTable display
+  ↓
+User selects action → _updateOrderStatus() or _cancelOrder()
+  ↓
+OrderService methods → Firestore update
+```
+
+**Key Methods:**
+- `_selectDateRange()` - Date range picker dialog
+- `_clearFilters()` - Reset all active filters
+- `_filterOrders()` - Client-side filtering logic
+- `_updateOrderStatus()` - Update order status via service
+- `_cancelOrder()` - Cancel order with confirmation dialog
+- `_buildStatusChip()` - Create color-coded status indicator
+
+#### OrderDetailsScreen (`features/admin/orders/order_details_screen.dart`)
+
+**Purpose:** Display full order information with student/parent details, item breakdown, and status management controls.
+
+**Key Features:**
+- **Order Header:** Order number, status badge, creation and delivery date/time
+- **Student Info Card:** Student name, grade level with icon indicator
+- **Parent Info Card:** Parent name, email with icon indicator
+- **Items Breakdown:** Line-by-line itemization with name, quantity, unit price, and subtotal
+- **Order Total:** Prominent display in primary color (₱ formatted)
+- **Special Instructions:** Conditionally displayed when present
+- **Status Update:** Dropdown selector (only enabled for non-completed/cancelled orders) with Update button
+- **Cancel Order:** Button with confirmation dialog to prevent accidental cancellation
+- **Refresh:** Icon button to reload order data from Firestore
+- **Navigation:** Back button to return to orders list
+
+**Data Flow:**
+```
+orderByIdProvider(orderId) [StreamProvider.family]
+  ↓
+Lazy load student info via studentsAsync
+  ↓
+Lazy load parent info via userByIdProvider
+  ↓
+Display with AsyncValue.when() for loading/error/data states
+  ↓
+User updates status or cancels
+  ↓
+OrderService methods → Firestore update → Auto-refresh via stream
+```
+
+**Key Widgets:**
+- `_StudentInfoWidget` - ConsumerWidget for lazy student info resolution
+- `_ParentInfoWidget` - ConsumerWidget for lazy parent info resolution
+
+#### Shared Utilities
+
+**ListExtensions** (`core/extensions/list_extensions.dart`)
+
+Centralized extension to provide `firstWhereOrNull<T>` method on List:
+```dart
+extension FirstWhereOrNull<T> on List<T> {
+  T? firstWhereOrNull(bool Function(T element) test) {
+    for (final element in this) {
+      if (test(element)) return element;
+    }
+    return null;
+  }
+}
+```
+
+Used in both order screens for safe list searching without throwing exceptions.
+
+#### Integration with Core Services
+
+**Providers Used:**
+- `ordersProvider` - StreamProvider<List<Order>> for all orders
+- `studentsProvider` - StreamProvider<List<Student>> for student lookups
+- `parentsProvider` - StreamProvider<List<Parent>> for parent lookups
+- `userByIdProvider(parentId)` - StreamProvider.family for specific parent user info
+- `orderServiceProvider` - Access to OrderService for updates and cancellations
+
+**Service Methods:**
+- `OrderService.updateOrderStatus(orderId, statusString)` - Update order status
+- `OrderService.cancelOrder(orderId)` - Cancel order and log cancellation
+
+**Models Used:**
+- `Order` - Complete order document with all fields
+- `OrderStatus` - Enum for valid status values
+- `Student`, `Parent`, `AppUser` - For display information
 
 ## 🚀 Running the Apps
 
